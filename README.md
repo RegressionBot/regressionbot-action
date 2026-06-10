@@ -86,6 +86,105 @@ jobs:
           auto-approve: true
 ```
 
+### 4. AWS Amplify Workflow (Dynamic Previews)
+
+Listen for AWS Amplify preview builds to succeed, dynamically parse the preview URL, and trigger a visual regression check against production:
+
+```yaml
+name: Visual Regression (AWS Amplify)
+
+on:
+  check_run:
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      preview-url:
+        description: 'Manual Preview URL to test'
+        required: true
+      pr-number:
+        description: 'PR Number'
+        required: false
+
+jobs:
+  visual-check:
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event_name == 'check_run' && 
+        github.event.check_run.conclusion == 'success' && 
+        contains(github.event.check_run.name, 'Amplify')
+      )
+    runs-on: ubuntu-latest
+    steps:
+      - name: Extract Environment Info
+        id: env
+        uses: actions/github-script@v7
+        with:
+          script: |
+            let previewUrl = '';
+            let prNumber = '';
+            if (context.eventName === 'workflow_dispatch') {
+              previewUrl = context.payload.inputs['preview-url'];
+              prNumber = context.payload.inputs['pr-number'];
+            } else {
+              const checkRun = context.payload.check_run;
+              previewUrl = checkRun.details_url;
+              if (checkRun.pull_requests && checkRun.pull_requests.length > 0) {
+                prNumber = checkRun.pull_requests[0].number;
+              }
+            }
+            core.setOutput('url', previewUrl);
+            core.setOutput('pr', prNumber);
+
+      - name: Run Visual Check
+        if: steps.env.outputs.url != ''
+        uses: RegressionBot/regressionbot-action@v1
+        with:
+          api-key: ${{ secrets.REGRESSIONBOT_API_KEY }}
+          test-origin: ${{ steps.env.outputs.url }}
+          project: "my-amplify-site"
+          base-origin: "https://www.your-production-site.com"
+          sitemap-url: "${{ steps.env.outputs.url }}/sitemap.xml"
+          devices: "Desktop Chrome"
+```
+
+### 5. ChatOps Approval Workflow
+
+Update your baselines directly from a Pull Request comment using ChatOps (e.g. typing `/approve-visual <job-id>`):
+
+```yaml
+name: ChatOps Approval
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  approve:
+    if: github.event.issue.pull_request && startsWith(github.event.comment.body, '/approve-visual')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Parse Job ID
+        id: parse
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = context.payload.comment.body;
+            const parts = body.trim().split(/\s+/);
+            if (parts.length < 2) {
+              core.setFailed('Missing Job ID. Usage: /approve-visual <job-id>');
+              return;
+            }
+            core.setOutput('job_id', parts[1].trim());
+
+      - name: Run Approval
+        uses: RegressionBot/regressionbot-action@v1
+        with:
+          command: 'approve'
+          api-key: ${{ secrets.REGRESSIONBOT_API_KEY }}
+          job-id: ${{ steps.parse.outputs.job_id }}
+```
+
 ---
 
 ## API Reference
