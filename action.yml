@@ -1,0 +1,81 @@
+name: 'RegressionBot Visual Testing'
+description: 'Automated visual regression testing with RegressionBot.com'
+author: 'RegressionBot'
+branding:
+  icon: 'aperture'
+  color: 'blue'
+
+inputs:
+  command:
+    description: 'The command to run (check, approve, status)'
+    required: true
+    default: 'check'
+  api-key:
+    description: 'RegressionBot API Key'
+    required: true
+  project:
+    description: 'Project ID (required for check)'
+    required: false
+  test-origin:
+    description: 'The candidate URL to test (required for check)'
+    required: false
+  base-origin:
+    description: 'Optional baseline URL to compare against'
+    required: false
+  sitemap-url:
+    description: 'Explicit sitemap.xml location'
+    required: false
+  devices:
+    description: 'Comma-separated list of devices (e.g. "Desktop Chrome, iPhone 13")'
+    required: false
+    default: 'Desktop Chrome'
+  scan:
+    description: 'Glob pattern to scan (e.g. "/**", "/blog/**")'
+    required: false
+  exclude:
+    description: 'Comma-separated list of glob patterns to exclude'
+    required: false
+  auto-approve:
+    description: 'Automatically approve results as baselines (true/false)'
+    required: false
+    default: 'false'
+  mask:
+    description: 'Comma-separated CSS selectors to mask (e.g. ".ads, #modal")'
+    required: false
+  concurrency:
+    description: 'Max concurrent workers (default: 10)'
+    required: false
+    default: '10'
+  skip-summaries:
+    description: 'Skip waiting for parallel AI summaries (true/false)'
+    required: false
+    default: 'false'
+  job-id:
+    description: 'The Job ID (required for approve or status command)'
+    required: false
+  fail-on-regression:
+    description: 'Fail the action build if regressions are found (true/false)'
+    required: false
+    default: 'true'
+  fail-on-error:
+    description: 'Fail the action build if errors are encountered (true/false)'
+    required: false
+    default: 'true'
+
+outputs:
+  job-id:
+    description: 'The ID of the RegressionBot job'
+  status:
+    description: 'The final status of the job'
+  overall-score:
+    description: 'The overall visual stability score (0-100)'
+  regression-count:
+    description: 'The number of regressions detected'
+  error-count:
+    description: 'The number of errors encountered'
+  summary:
+    description: 'A markdown summary of the job run'
+
+runs:
+  using: 'node20'
+  main: 'dist/index.js'

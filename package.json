@@ -1,0 +1,24 @@
+{
+  "name": "regressionbot-action",
+  "version": "1.0.0",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "esbuild src/index.ts --bundle --platform=node --target=node20 --minify --outfile=dist/index.js",
+    "test": "echo \"Error: no test specified\" && exit 0"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@actions/core": "^3.0.1",
+    "@actions/github": "^9.1.1",
+    "regressionbot": "^1.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.2",
+    "@vercel/ncc": "^0.44.0",
+    "esbuild": "^0.28.0",
+    "typescript": "^6.0.3"
+  }
+}
