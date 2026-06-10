@@ -133,7 +133,7 @@ If you want to contribute to this action or run it locally, clone this repositor
    npm install
    ```
 
-2. Compile TypeScript and bundle with `@vercel/ncc`:
+2. Compile TypeScript and bundle with `esbuild`:
    ```bash
    npm run build
    ```
