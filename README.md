@@ -2,6 +2,8 @@
 
 The official GitHub Action for [RegressionBot.com](https://regressionbot.com) — the simplest way to automate visual regression testing in your CI/CD pipeline.
 
+[RegressionBot](https://regressionbot.com) is a declarative visual regression testing platform that helps you catch UI changes before they reach production. It requires zero infrastructure maintenance — handling all browser execution, matrix testing, screenshot capture, and visual comparison asynchronously on its servers.
+
 This action runs declarative visual regression tests against your candidate environments, compares screenshots with baselines (or base origins), and reports the results directly within your GitHub pull requests and workflow runs.
 
 ## Features

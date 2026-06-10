@@ -1,6 +1,6 @@
 {
   "name": "regressionbot-action",
-  "version": "1.0.0",
+  "version": "0.0.1",
   "main": "dist/index.js",
   "scripts": {
     "build": "esbuild src/index.ts --bundle --platform=node --target=node20 --minify --outfile=dist/index.js",
@@ -13,7 +13,7 @@
   ],
   "author": "RegressionBot (https://regressionbot.com)",
   "license": "ISC",
-  "description": "GitHub Action for RegressionBot.com visual regression testing",
+  "description": "The official GitHub Action for RegressionBot.com — the simplest way to automate visual regression testing.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/RegressionBot/regressionbot-action.git"
@@ -21,7 +21,7 @@
   "bugs": {
     "url": "https://github.com/RegressionBot/regressionbot-action/issues"
   },
-  "homepage": "https://github.com/RegressionBot/regressionbot-action#readme",
+  "homepage": "https://regressionbot.com",
   "dependencies": {
     "@actions/core": "^3.0.1",
     "@actions/github": "^9.1.1",
