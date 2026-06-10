@@ -6,10 +6,22 @@
     "build": "esbuild src/index.ts --bundle --platform=node --target=node20 --minify --outfile=dist/index.js",
     "test": "echo \"Error: no test specified\" && exit 0"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "github-action",
+    "visual-regression",
+    "testing"
+  ],
+  "author": "RegressionBot (https://regressionbot.com)",
   "license": "ISC",
-  "description": "",
+  "description": "GitHub Action for RegressionBot.com visual regression testing",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RegressionBot/regressionbot-action.git"
+  },
+  "bugs": {
+    "url": "https://github.com/RegressionBot/regressionbot-action/issues"
+  },
+  "homepage": "https://github.com/RegressionBot/regressionbot-action#readme",
   "dependencies": {
     "@actions/core": "^3.0.1",
     "@actions/github": "^9.1.1",
