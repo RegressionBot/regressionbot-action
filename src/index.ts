@@ -171,9 +171,21 @@ async function handleStatus(sdk: RegressionBot) {
   core.setOutput('status', status.status);
 }
 
+function getStabilityLabel(score: number): string {
+  if (score === 100) {
+    return '🟢 No Changes';
+  } else if (score >= 95) {
+    return '🟡 Minor Deviations';
+  } else if (score >= 80) {
+    return '🟠 Significant Changes';
+  } else {
+    return '🔴 Major Changes';
+  }
+}
+
 function printConsoleSummary(summary: JobSummary) {
   core.startGroup('RegressionBot Run Summary');
-  core.info(`Overall Score: ${summary.overallScore}/100`);
+  core.info(`Overall Score: ${summary.overallScore}/100 (${getStabilityLabel(summary.overallScore)})`);
   core.info(`Total Tasks: ${summary.totalUrls}`);
   core.info(`Regressions: ${summary.regressionCount}`);
   core.info(`New Baselines: ${summary.newBaselineCount}`);
@@ -212,7 +224,7 @@ async function generateJobSummary(jobId: string, summary: JobSummary) {
 
 **Job ID:** \`${jobId}\`
 **Status:** \`${summary.status}\`
-**Stability Score:** \`${summary.overallScore}/100\`
+**Stability Score:** \`${summary.overallScore}/100\` (${getStabilityLabel(summary.overallScore)})
 
 #### Summary Metrics
 | Metric | Value |
@@ -250,8 +262,6 @@ async function generateJobSummary(jobId: string, summary: JobSummary) {
       markdown += `- **${e.url}**: ${e.errorMessage}\n`;
     });
   }
-
-  markdown += `\n*To manage baselines and approve changes, log into your [RegressionBot Dashboard](https://regressionbot.com).*`;
 
   core.setOutput('summary', markdown);
   await core.summary.addRaw(markdown).write();

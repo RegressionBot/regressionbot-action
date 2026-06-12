@@ -223,6 +223,27 @@ jobs:
 | `error-count` | The number of pages that failed to crawl/test. |
 | `summary` | The full Markdown summary detailing the run results. |
 
+## Security & Permissions
+
+### Secrets Management
+The `api-key` input is a sensitive credential used to authenticate requests to RegressionBot. **Never hardcode this API key in your workflow files.** Always store it as a GitHub Secret (e.g., `REGRESSIONBOT_API_KEY`) and reference it using the secret context:
+```yaml
+api-key: ${{ secrets.REGRESSIONBOT_API_KEY }}
+```
+
+### Least Privilege Permissions
+For optimal security, it is recommended to run this action (and your workflows) with the minimum required permissions. This action only needs read-only access to repository contents to run checks. You can configure this explicitly at the workflow or job level:
+```yaml
+permissions:
+  contents: read
+```
+
+### Version Pinning
+For production pipelines, consider pinning the action to a specific commit SHA rather than a tag to protect against upstream dependency tampering or unexpected tag updates:
+```yaml
+uses: RegressionBot/regressionbot-action@c2d6e3c8f8b... # Replace with actual commit SHA
+```
+
 ---
 
 ## Development

@@ -1,0 +1,68 @@
+name: Release Tagging
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Fetch all history and tags
+
+      - name: Get package version
+        id: get-version
+        run: |
+          VERSION=$(node -e "console.log(require('./package.json').version)")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=v$VERSION" >> $GITHUB_OUTPUT
+          
+          # Extract major version (e.g., from 1.2.3 get 1)
+          MAJOR=$(echo "$VERSION" | cut -d. -f1)
+          echo "major=v$MAJOR" >> $GITHUB_OUTPUT
+          
+          # Extract minor version (e.g., from 1.2.3 get 1.2)
+          MINOR=$(echo "$VERSION" | cut -d. -f1-2)
+          echo "minor=v$MINOR" >> $GITHUB_OUTPUT
+
+      - name: Check if tag already exists
+        id: check-tag
+        run: |
+          TAG_NAME="${{ steps.get-version.outputs.tag }}"
+          if git rev-parse "$TAG_NAME" >/dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "Tag $TAG_NAME already exists, skipping release."
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "Tag $TAG_NAME does not exist, proceeding to tag."
+          fi
+
+      - name: Create and push tags
+        if: steps.check-tag.outputs.exists == 'false'
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          VERSION_TAG="${{ steps.get-version.outputs.tag }}"
+          MAJOR_TAG="${{ steps.get-version.outputs.major }}"
+          MINOR_TAG="${{ steps.get-version.outputs.minor }}"
+          
+          echo "Creating precise version tag $VERSION_TAG..."
+          git tag -a "$VERSION_TAG" -m "Release $VERSION_TAG"
+          
+          echo "Updating major tag $MAJOR_TAG..."
+          git tag -fa "$MAJOR_TAG" -m "Release $VERSION_TAG"
+          
+          echo "Updating minor tag $MINOR_TAG..."
+          git tag -fa "$MINOR_TAG" -m "Release $VERSION_TAG"
+          
+          git push origin "$VERSION_TAG"
+          git push origin "$MAJOR_TAG" --force
+          git push origin "$MINOR_TAG" --force
