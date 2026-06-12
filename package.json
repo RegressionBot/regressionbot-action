@@ -30,7 +30,7 @@
   "devDependencies": {
     "@types/node": "^25.9.2",
     "@vercel/ncc": "^0.44.0",
-    "esbuild": "^0.28.0",
+    "esbuild": "^0.28.1",
     "typescript": "^6.0.3"
   }
 }
