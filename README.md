@@ -17,11 +17,6 @@ This action runs declarative visual regression tests against your candidate envi
 - **🎯 Unrivaled Visual Accuracy**: Catches real visual regressions with high-fidelity, pixel-by-pixel comparisons and layout shift detection. Avoid the headache of false positives by focusing only on true UI changes.
 - **🤖 Plain-English Visual Summaries**: Eliminates the guesswork. RegressionBot automatically generates human-readable descriptions of what visually changed on each page (e.g., *"Font color in footer changed from green to orange"* or *"Added new baseline image next to heading"*), so you can review UI updates in seconds instead of squinting at visual diff lines.
 - **🧠 Built for Agentic Workflows**: RegressionBot is natively designed to integrate with AI coding agents (such as Antigravity) and MCP tools. Coding agents can autonomously trigger tests, parse natural English summaries, and handle automated approval/rejection flows in CI/CD pipelines.
-- **✨ Zero Infrastructure Maintenance**: No headless browsers to manage, no grid servers to scale. All rendering, comparisons, and matrix runs are handled asynchronously on our blazing-fast, secure cloud infrastructure.
-- **💬 Developer-First Feedback Loop**: Delivers visual check results directly into your Pull Request comments and GitHub Step Summaries with links to interactive side-by-side comparison images.
-- **📱 True Matrix Testing**: Test any page across a variety of default viewports and devices (including Desktop Chrome, Safari, iPhone, Android, and Tablets) out-of-the-box.
-- **🛡️ Intelligent Element Masking**: Prevent false positives from dynamic content (like ads, video players, and live timestamps) by using simple CSS selector masking.
-- **🗺️ Sitemap Auto-Discovery**: Point RegressionBot to your sitemap, filter target directories with glob patterns, and let it handle the rest automatically.
 
 ---
 
