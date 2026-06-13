@@ -225,6 +225,14 @@ function getStabilityLabel(score: number): string {
   }
 }
 
+function getUrlPath(urlStr: string): string {
+  try {
+    return new URL(urlStr).pathname;
+  } catch (e) {
+    return urlStr;
+  }
+}
+
 function printConsoleSummary(summary: JobSummary) {
   core.startGroup('RegressionBot Run Summary');
   core.info(`Overall Score: ${summary.overallScore}/100 (${getStabilityLabel(summary.overallScore)})`);
@@ -237,14 +245,14 @@ function printConsoleSummary(summary: JobSummary) {
   if (summary.newBaselineCount > 0) {
     core.info('\n✨ New Baselines Created:');
     summary.newBaselines.forEach((nb: any) => {
-      core.info(`- ${nb.url} [${nb.variantName}]`);
+      core.info(`- ${getUrlPath(nb.url)} [${nb.variantName}]`);
     });
   }
 
   if (summary.regressions.length > 0) {
     core.info('\n❌ Regressions Found:');
     summary.regressions.forEach((r: any) => {
-      core.info(`- ${r.url} [${r.variantName}] (Score: ${r.visualMatchScore.toFixed(2)})`);
+      core.info(`- ${getUrlPath(r.url)} [${r.variantName}] (Score: ${r.visualMatchScore.toFixed(2)})`);
       core.info(`  Diff Image: ${r.diffUrl}`);
       if (r.regressionbotSummary && Array.isArray(r.regressionbotSummary)) {
         core.info(`  RegressionBot Summary:`);
@@ -268,7 +276,7 @@ function printConsoleSummary(summary: JobSummary) {
   if (summary.errors.length > 0) {
     core.info('\n⚠️ Errors:');
     summary.errors.forEach((e: any) => {
-      core.info(`- ${e.url}: ${e.errorMessage}`);
+      core.info(`- ${getUrlPath(e.url)}: ${e.errorMessage}`);
     });
   }
   core.endGroup();
