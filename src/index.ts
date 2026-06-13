@@ -136,9 +136,7 @@ async function handleCheck(sdk: RegressionBot) {
         currentStatus !== lastStatus ||
         currentSummaryStatus !== lastSummaryStatus
       ) {
-        const showSummary = (currentStatus === 'COMPLETED' || currentStatus === 'APPROVED') &&
-          currentSummaryStatus &&
-          currentSummaryStatus !== 'NONE';
+        const showSummary = currentSummaryStatus && currentSummaryStatus !== 'NONE';
         const summaryPart = showSummary
           ? ` [RegressionBot Summary: ${currentSummaryStatus}]`
           : '';
