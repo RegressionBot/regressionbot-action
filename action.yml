@@ -47,7 +47,7 @@ inputs:
     required: false
     default: '10'
   skip-summaries:
-    description: 'Skip waiting for parallel AI summaries (true/false)'
+    description: 'Skip waiting for RegressionBot regression summaries (true/false)'
     required: false
     default: 'false'
   job-id:
