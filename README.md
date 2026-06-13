@@ -29,7 +29,7 @@ This action runs declarative visual regression tests against your candidate envi
 
 ### 1. Basic Example: Compare Preview URL with Production
 
-This workflow triggers a visual check whenever a PR is updated. It compares a staging URL against the production site.
+This workflow triggers a visual check whenever a PR is updated. It compares a staging URL against the production site and posts the results as a comment directly on the Pull Request.
 
 ```yaml
 name: Visual Regression Test
@@ -38,18 +38,24 @@ on:
   pull_request:
     branches: [ main ]
 
+# Required permissions for posting PR comments
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
   visual-test:
     runs-on: ubuntu-latest
     steps:
       - name: Run RegressionBot Check
-        uses: RegressionBot/regressionbot-action@v1
+        uses: RegressionBot/regressionbot-action@v0
         with:
           api-key: ${{ secrets.REGRESSIONBOT_API_KEY }}
           project: 'my-web-app'
           test-origin: 'https://staging.myapp.com'
           base-origin: 'https://myapp.com'
           devices: 'Desktop Chrome, iPhone 13'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 ### 2. Full Matrix Sitemap Scan
@@ -58,7 +64,7 @@ For larger projects, you can scan your sitemap and check only specific paths or 
 
 ```yaml
       - name: Scan Sitemap for Regressions
-        uses: RegressionBot/regressionbot-action@v1
+        uses: RegressionBot/regressionbot-action@v0
         with:
           api-key: ${{ secrets.REGRESSIONBOT_API_KEY }}
           project: 'marketing-site'
@@ -88,7 +94,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Update Baselines
-        uses: RegressionBot/regressionbot-action@v1
+        uses: RegressionBot/regressionbot-action@v0
         with:
           api-key: ${{ secrets.REGRESSIONBOT_API_KEY }}
           project: 'my-web-app'
@@ -99,6 +105,9 @@ jobs:
 ### 4. AWS Amplify Workflow (Dynamic Previews)
 
 Listen for AWS Amplify preview builds to succeed, dynamically parse the preview URL, and trigger a visual regression check against production:
+
+> [!IMPORTANT]
+> The AWS Amplify check run `details_url` points directly to the AWS Console build details page, which requires authentication and cannot be crawled. You must construct your public preview URL dynamically (e.g. `https://pr-${PR_NUMBER}.<appid>.amplifyapp.com`) or parse it from a custom deployment payload.
 
 ```yaml
 name: Visual Regression (AWS Amplify)
@@ -138,7 +147,8 @@ jobs:
               prNumber = context.payload.inputs['pr-number'];
             } else {
               const checkRun = context.payload.check_run;
-              previewUrl = checkRun.details_url;
+              // Note: Construct or parse public preview URL rather than console page
+              previewUrl = checkRun.details_url; // Replace with your public preview URL
               if (checkRun.pull_requests && checkRun.pull_requests.length > 0) {
                 prNumber = checkRun.pull_requests[0].number;
               }
@@ -148,7 +158,7 @@ jobs:
 
       - name: Run Visual Check
         if: steps.env.outputs.url != ''
-        uses: RegressionBot/regressionbot-action@v1
+        uses: RegressionBot/regressionbot-action@v0
         with:
           api-key: ${{ secrets.REGRESSIONBOT_API_KEY }}
           test-origin: ${{ steps.env.outputs.url }}
@@ -164,6 +174,9 @@ jobs:
 
 Update your baselines directly from a Pull Request comment using ChatOps (e.g. typing `/approve-visual <job-id>`):
 
+> [!CAUTION]
+> Running issue comment workflows on public repositories can expose you to security vulnerabilities if anyone can execute them. Ensure you always verify the commenter's association permissions (`OWNER` or `COLLABORATOR`) before running the approval command.
+
 ```yaml
 name: ChatOps Approval
 
@@ -173,7 +186,11 @@ on:
 
 jobs:
   approve:
-    if: github.event.issue.pull_request && startsWith(github.event.comment.body, '/approve-visual')
+    # Restrict executions to owners or collaborators to prevent unauthorized approvals
+    if: |
+      github.event.issue.pull_request && 
+      startsWith(github.event.comment.body, '/approve-visual') &&
+      (github.event.comment.author_association == 'COLLABORATOR' || github.event.comment.author_association == 'OWNER')
     runs-on: ubuntu-latest
     steps:
       - name: Parse Job ID
@@ -190,7 +207,7 @@ jobs:
             core.setOutput('job_id', parts[1].trim());
 
       - name: Run Approval
-        uses: RegressionBot/regressionbot-action@v1
+        uses: RegressionBot/regressionbot-action@v0
         with:
           command: 'approve'
           api-key: ${{ secrets.REGRESSIONBOT_API_KEY }}
