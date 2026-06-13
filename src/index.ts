@@ -1,4 +1,5 @@
 import * as core from '@actions/core';
+import * as github from '@actions/github';
 import { RegressionBot, JobStatus, JobSummary } from 'regressionbot';
 
 async function run() {
@@ -17,6 +18,17 @@ async function run() {
       throw new Error(`Unknown command: ${command}`);
     }
   } catch (error: any) {
+    const githubToken = core.getInput('github-token');
+    const command = core.getInput('command') || 'check';
+    if (githubToken && command === 'check') {
+      const prNumber = getPrNumber();
+      if (prNumber) {
+        const failureMarkdown = `### ⚠️ RegressionBot Visual Check Failed\n\n${error.message}\n\nCheck the Actions log for details.`;
+        const octokit = github.getOctokit(githubToken);
+        const { owner, repo } = github.context.repo;
+        await postOrUpdateComment(octokit, owner, repo, prNumber, failureMarkdown);
+      }
+    }
     core.setFailed(error.message);
   }
 }
@@ -128,7 +140,17 @@ async function handleCheck(sdk: RegressionBot) {
   core.setOutput('error-count', summary.errorCount.toString());
 
   // Generate GitHub Job Summary Markdown
-  await generateJobSummary(job.jobId, summary);
+  const markdown = await generateJobSummary(job.jobId, summary);
+
+  const githubToken = core.getInput('github-token');
+  if (githubToken) {
+    const prNumber = getPrNumber();
+    if (prNumber) {
+      const octokit = github.getOctokit(githubToken);
+      const { owner, repo } = github.context.repo;
+      await postOrUpdateComment(octokit, owner, repo, prNumber, markdown);
+    }
+  }
 
   // Print console summary
   printConsoleSummary(summary);
@@ -204,8 +226,21 @@ function printConsoleSummary(summary: JobSummary) {
     summary.regressions.forEach((r: any) => {
       core.info(`- ${r.url} [${r.variantName}] (Score: ${r.visualMatchScore.toFixed(2)})`);
       core.info(`  Diff Image: ${r.diffUrl}`);
-      if (r.regressionbotSummary) {
-        core.info(`  AI Summary: ${r.regressionbotSummary}`);
+      if (r.regressionbotSummary && Array.isArray(r.regressionbotSummary)) {
+        core.info(`  RegressionBot Summary:`);
+        r.regressionbotSummary.forEach((item: any) => {
+          const prefix = item.label ? `${item.label}: ` : '';
+          core.info(`    - ${prefix}${item.text}`);
+        });
+      } else if (r.regressionbotSummary) {
+        core.info(`  RegressionBot Summary:`);
+        if (typeof r.regressionbotSummary === 'string') {
+          r.regressionbotSummary.split('\n').forEach((line: string) => {
+            core.info(`    ${line}`);
+          });
+        } else {
+          core.info(`    ${JSON.stringify(r.regressionbotSummary)}`);
+        }
       }
     });
   }
@@ -219,7 +254,7 @@ function printConsoleSummary(summary: JobSummary) {
   core.endGroup();
 }
 
-async function generateJobSummary(jobId: string, summary: JobSummary) {
+async function generateJobSummary(jobId: string, summary: JobSummary): Promise<string> {
   let markdown = `### 🚀 RegressionBot Visual Test Results
 
 **Job ID:** \`${jobId}\`
@@ -239,19 +274,47 @@ async function generateJobSummary(jobId: string, summary: JobSummary) {
   if (summary.newBaselines && summary.newBaselines.length > 0) {
     markdown += `\n#### ✨ New Baselines Created\n`;
     summary.newBaselines.forEach((nb: any) => {
-      markdown += `- \`${nb.url}\` [${nb.variantName}]\n`;
+      let urlPath = nb.url;
+      try {
+        urlPath = new URL(nb.url).pathname;
+      } catch (e) {
+        // Ignored
+      }
+      markdown += `- \`${urlPath}\` [${nb.variantName}]\n`;
     });
   }
 
   if (summary.regressions && summary.regressions.length > 0) {
     markdown += `\n#### ❌ Regressions Detected\n`;
     summary.regressions.forEach((r: any) => {
-      markdown += `- **${r.url}** [${r.variantName}] (Score: **${r.visualMatchScore.toFixed(2)}**)\n`;
-      if (r.diffUrl) {
-        markdown += `  - [View Diff Image](${r.diffUrl})\n`;
+      let urlPath = r.url;
+      try {
+        urlPath = new URL(r.url).pathname;
+      } catch (e) {
+        // Ignored
       }
-      if (r.regressionbotSummary) {
-        markdown += `  - *AI Summary:* ${r.regressionbotSummary}\n`;
+      
+      markdown += `- **${urlPath}** [${r.variantName}] (Score: **${r.visualMatchScore.toFixed(2)}**)`;
+      if (r.diffUrl) {
+        markdown += ` - [View Diff Image](${r.diffUrl})`;
+      }
+      markdown += '\n';
+
+      if (r.regressionbotSummary && Array.isArray(r.regressionbotSummary)) {
+        markdown += `  - **RegressionBot Summary:**\n`;
+        r.regressionbotSummary.forEach((item: any) => {
+          const prefix = item.label ? `**${item.label}**: ` : '';
+          markdown += `    - ${prefix}${item.text}\n`;
+        });
+      } else if (r.regressionbotSummary) {
+        markdown += `  - **RegressionBot Summary:**\n`;
+        if (typeof r.regressionbotSummary === 'string') {
+          r.regressionbotSummary.split('\n').forEach((line: string) => {
+            markdown += `    ${line}\n`;
+          });
+        } else {
+          markdown += `    ${JSON.stringify(r.regressionbotSummary)}\n`;
+        }
       }
     });
   }
@@ -259,12 +322,72 @@ async function generateJobSummary(jobId: string, summary: JobSummary) {
   if (summary.errors && summary.errors.length > 0) {
     markdown += `\n#### ⚠️ Errors Encountered\n`;
     summary.errors.forEach((e: any) => {
-      markdown += `- **${e.url}**: ${e.errorMessage}\n`;
+      let urlPath = e.url;
+      try {
+        urlPath = new URL(e.url).pathname;
+      } catch (err) {
+        // Ignored
+      }
+      markdown += `- **${urlPath}**: ${e.errorMessage}\n`;
     });
   }
 
   core.setOutput('summary', markdown);
   await core.summary.addRaw(markdown).write();
+  return markdown;
+}
+
+function getPrNumber(): number | undefined {
+  const prNumberInput = core.getInput('pr-number');
+  if (prNumberInput) {
+    const num = parseInt(prNumberInput, 10);
+    if (!isNaN(num)) {
+      return num;
+    }
+  }
+  if (github.context.payload.pull_request) {
+    return github.context.payload.pull_request.number;
+  }
+  if (github.context.payload.issue && github.context.payload.issue.pull_request) {
+    return github.context.payload.issue.number;
+  }
+  return undefined;
+}
+
+async function postOrUpdateComment(octokit: any, owner: string, repo: string, prNumber: number, body: string) {
+  try {
+    core.info(`💬 Posting results to Pull Request #${prNumber}...`);
+    const { data: comments } = await octokit.rest.issues.listComments({
+      owner,
+      repo,
+      issue_number: prNumber,
+    });
+
+    const botComment = comments.find((c: any) =>
+      c.body.includes('### 🚀 RegressionBot Visual Test Results') ||
+      c.body.includes('### ⚠️ RegressionBot Visual Check Failed')
+    );
+
+    if (botComment) {
+      await octokit.rest.issues.updateComment({
+        owner,
+        repo,
+        comment_id: botComment.id,
+        body,
+      });
+      core.info('💬 Pull Request comment updated successfully.');
+    } else {
+      await octokit.rest.issues.createComment({
+        owner,
+        repo,
+        issue_number: prNumber,
+        body,
+      });
+      core.info('💬 Pull Request comment created successfully.');
+    }
+  } catch (error: any) {
+    core.warning(`⚠️ Failed to post PR comment: ${error.message}`);
+  }
 }
 
 run();

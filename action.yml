@@ -61,6 +61,12 @@ inputs:
     description: 'Fail the action build if errors are encountered (true/false)'
     required: false
     default: 'true'
+  github-token:
+    description: 'GitHub token to automatically post/update a Pull Request comment'
+    required: false
+  pr-number:
+    description: 'Explicit PR number to comment on (auto-detected if omitted)'
+    required: false
 
 outputs:
   job-id:

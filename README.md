@@ -148,6 +148,8 @@ jobs:
           base-origin: "https://www.your-production-site.com"
           sitemap-url: "${{ steps.env.outputs.url }}/sitemap.xml"
           devices: "Desktop Chrome"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          pr-number: ${{ steps.env.outputs.pr }}
 ```
 
 ### 5. ChatOps Approval Workflow
@@ -211,6 +213,8 @@ jobs:
 | `job-id` | The Job ID (required only for `approve` or `status` commands). | No | N/A |
 | `fail-on-regression` | Fail the GitHub Action workflow if regressions are found (`true`/`false`). | No | `true` |
 | `fail-on-error` | Fail the GitHub Action workflow if execution errors occur (`true`/`false`). | No | `true` |
+| `github-token` | GitHub token (`${{ secrets.GITHUB_TOKEN }}`) to automatically post/update a PR comment with test results. | No | N/A |
+| `pr-number` | Explicit PR number to comment on (auto-detected if omitted on PR/issue events). | No | N/A |
 
 ### Outputs
 
