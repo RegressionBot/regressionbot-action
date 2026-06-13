@@ -1,19 +1,25 @@
-# RegressionBot GitHub Action
+# 🚀 RegressionBot GitHub Action
 
-The official GitHub Action for [RegressionBot.com](https://regressionbot.com) — the simplest way to automate visual regression testing in your CI/CD pipeline.
+[![Build & Test](https://github.com/RegressionBot/regressionbot-action/actions/workflows/ci.yml/badge.svg)](https://github.com/RegressionBot/regressionbot-action/actions)
+[![License: ISC](https://img.shields.io/badge/License-ISC-blue.svg)](https://opensource.org/licenses/ISC)
+[![Official Website](https://img.shields.io/badge/Website-regressionbot.com-blueviolet)](https://regressionbot.com)
 
-[RegressionBot](https://regressionbot.com) is a declarative visual regression testing platform that helps you catch UI changes before they reach production. It requires zero infrastructure maintenance — handling all browser execution, matrix testing, screenshot capture, and visual comparison asynchronously on its servers.
+The official GitHub Action for [RegressionBot.com](https://regressionbot.com) — the ultimate developer-first platform for automated, lightning-fast, and zero-maintenance visual regression testing.
+
+Stop worrying about CSS bugs, unexpected layout shifts, or broken mobile views slipping into production. [RegressionBot](https://regressionbot.com) automatically crawls your staging and preview environments, runs multi-device matrix tests, performs high-fidelity pixel comparison, and reports detailed visual diff metrics—all without writing a single line of browser automation code.
 
 This action runs declarative visual regression tests against your candidate environments, compares screenshots with baselines (or base origins), and reports the results directly within your GitHub pull requests and workflow runs.
 
-## Features
+---
 
-- 🚀 **Fast CI Integration**: Runs visual regression tests dynamically as part of your pull requests or deployments.
-- 💬 **GitHub Job Summary**: Publishes detailed visual diff metrics and links directly to GitHub's Step Summary.
-- 📱 **Matrix Testing**: Easily configures tests across multiple devices (Desktop, Mobile, etc.) in parallel.
-- 🔎 **Sitemap Discovery & Exclusions**: Automatically crawls pages using glob patterns.
-- 🎭 **CSS Selector Masking**: Automatically masks dynamic/noisy elements (e.g., ads, timestamps) to prevent false positives.
-- 🤖 **AI-Generated Summaries**: Pulls plain-English descriptions of what changed on pages with regressions.
+## Why RegressionBot?
+
+- **✨ Zero Infrastructure Maintenance**: No headless browsers to manage, no grid servers to scale. All rendering, comparisons, and matrix runs are handled asynchronously on our blazing-fast, secure cloud infrastructure.
+- **🤖 Plain-English Visual Summaries**: RegressionBot automatically generates human-readable descriptions of what visually changed on each page (e.g., *"Font color in footer changed from green to orange"* or *"Added new baseline image next to heading"*), saving you from digging through raw diffs.
+- **💬 Developer-First Feedback Loop**: Delivers visual check results directly into your Pull Request comments and GitHub Step Summaries with links to interactive side-by-side comparison images.
+- **📱 True Matrix Testing**: Test any page across a variety of default viewports and devices (including Desktop Chrome, Safari, iPhone, Android, and Tablets) out-of-the-box.
+- **🛡️ Intelligent Element Masking**: Prevent false positives from dynamic content (like ads, video players, and live timestamps) by using simple CSS selector masking.
+- **🗺️ Sitemap Auto-Discovery**: Point RegressionBot to your sitemap, filter target directories with glob patterns, and let it handle the rest automatically.
 
 ---
 
@@ -209,7 +215,7 @@ jobs:
 | `auto-approve` | Automatically promote test screenshots to baselines (`true`/`false`). | No | `false` |
 | `mask` | Comma-separated CSS selectors to mask/hide. | No | N/A |
 | `concurrency` | Max concurrent worker instances (1-20). | No | `10` |
-| `skip-summaries` | Skip waiting for AI-generated regression summaries (`true`/`false`). | No | `false` |
+| `skip-summaries` | Skip waiting for RegressionBot regression summaries (`true`/`false`). | No | `false` |
 | `job-id` | The Job ID (required only for `approve` or `status` commands). | No | N/A |
 | `fail-on-regression` | Fail the GitHub Action workflow if regressions are found (`true`/`false`). | No | `true` |
 | `fail-on-error` | Fail the GitHub Action workflow if execution errors occur (`true`/`false`). | No | `true` |
