@@ -142,11 +142,11 @@ jobs:
               prNumber = context.payload.inputs['pr-number'];
             } else {
               const checkRun = context.payload.check_run;
-              // Note: Construct or parse public preview URL rather than console page
-              previewUrl = checkRun.details_url; // Replace with your public preview URL
               if (checkRun.pull_requests && checkRun.pull_requests.length > 0) {
                 prNumber = checkRun.pull_requests[0].number;
               }
+              // Construct your public preview URL (e.g. using your Amplify App ID and PR number)
+              previewUrl = `https://pr-${prNumber}.d123456789.amplifyapp.com`;
             }
             core.setOutput('url', previewUrl);
             core.setOutput('pr', prNumber);
