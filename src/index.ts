@@ -21,12 +21,16 @@ async function run() {
     const githubToken = core.getInput('github-token');
     const command = core.getInput('command') || 'check';
     if (githubToken && command === 'check') {
-      const prNumber = getPrNumber();
-      if (prNumber) {
-        const failureMarkdown = `### ⚠️ RegressionBot Visual Check Failed\n\n${error.message}\n\nCheck the Actions log for details.`;
+      try {
         const octokit = github.getOctokit(githubToken);
         const { owner, repo } = github.context.repo;
-        await postOrUpdateComment(octokit, owner, repo, prNumber, failureMarkdown);
+        const prNumber = await resolvePrNumber(octokit, owner, repo);
+        if (prNumber) {
+          const failureMarkdown = `### ⚠️ RegressionBot Visual Check Failed\n\n${error.message}\n\nCheck the Actions log for details.`;
+          await postOrUpdateComment(octokit, owner, repo, prNumber, failureMarkdown);
+        }
+      } catch (commentError: any) {
+        core.warning(`⚠️ Failed to resolve PR or post failure comment: ${commentError.message}`);
       }
     }
     core.setFailed(error.message);
@@ -119,13 +123,31 @@ async function handleCheck(sdk: RegressionBot) {
   core.info('Waiting for job completion...');
 
   let lastPercent = -1;
+  let lastStatus = '';
+  let lastSummaryStatus = '';
   const status = await job.waitForCompletion(
     3000,
     (s: JobStatus) => {
       const percent = s.progress?.percent ? parseInt(s.progress.percent, 10) : 0;
-      if (percent !== lastPercent) {
-        core.info(`Status: ${s.status} (${percent}%)` + (s.summaryStatus && s.summaryStatus !== 'NONE' ? ` [AI Summary Status: ${s.summaryStatus}]` : ''));
+      const currentStatus = s.status;
+      const currentSummaryStatus = s.summaryStatus || '';
+      if (
+        percent !== lastPercent ||
+        currentStatus !== lastStatus ||
+        currentSummaryStatus !== lastSummaryStatus
+      ) {
+        const showSummary = currentSummaryStatus && currentSummaryStatus !== 'NONE' && (
+          currentSummaryStatus === 'PROCESSING' ||
+          currentStatus === 'COMPLETED' ||
+          currentStatus === 'APPROVED'
+        );
+        const summaryPart = showSummary
+          ? ` [RegressionBot Summary: ${currentSummaryStatus}]`
+          : '';
+        core.info(`Status: ${currentStatus} (${percent}%)${summaryPart}`);
         lastPercent = percent;
+        lastStatus = currentStatus;
+        lastSummaryStatus = currentSummaryStatus;
       }
     },
     { waitForSummaries: !skipSummaries }
@@ -144,11 +166,13 @@ async function handleCheck(sdk: RegressionBot) {
 
   const githubToken = core.getInput('github-token');
   if (githubToken) {
-    const prNumber = getPrNumber();
+    const octokit = github.getOctokit(githubToken);
+    const { owner, repo } = github.context.repo;
+    const prNumber = await resolvePrNumber(octokit, owner, repo);
     if (prNumber) {
-      const octokit = github.getOctokit(githubToken);
-      const { owner, repo } = github.context.repo;
       await postOrUpdateComment(octokit, owner, repo, prNumber, markdown);
+    } else {
+      core.info('ℹ️ github-token was provided, but no active Pull Request could be resolved for this run. Skipping posting pull request comment.');
     }
   }
 
@@ -337,7 +361,7 @@ async function generateJobSummary(jobId: string, summary: JobSummary): Promise<s
   return markdown;
 }
 
-function getPrNumber(): number | undefined {
+async function resolvePrNumber(octokit: any, owner: string, repo: string): Promise<number | undefined> {
   const prNumberInput = core.getInput('pr-number');
   if (prNumberInput) {
     const num = parseInt(prNumberInput, 10);
@@ -345,12 +369,59 @@ function getPrNumber(): number | undefined {
       return num;
     }
   }
+
   if (github.context.payload.pull_request) {
     return github.context.payload.pull_request.number;
   }
+
   if (github.context.payload.issue && github.context.payload.issue.pull_request) {
     return github.context.payload.issue.number;
   }
+
+  // Fallback 1: Search associated PRs by commit SHA
+  if (github.context.sha) {
+    try {
+      core.info(`Searching for pull requests associated with commit ${github.context.sha}...`);
+      const { data: prs } = await octokit.rest.repos.listPullRequestsAssociatedWithCommit({
+        owner,
+        repo,
+        commit_sha: github.context.sha,
+      });
+      const openPr = prs.find((pr: any) => pr.state === 'open');
+      if (openPr) {
+        core.info(`Found open pull request #${openPr.number} associated with commit.`);
+        return openPr.number;
+      }
+      if (prs.length > 0) {
+        core.info(`Found pull request #${prs[0].number} associated with commit.`);
+        return prs[0].number;
+      }
+    } catch (error: any) {
+      core.debug(`Failed to find PR by commit SHA: ${error.message}`);
+    }
+  }
+
+  // Fallback 2: Search open PRs by branch name
+  const ref = github.context.ref;
+  if (ref && ref.startsWith('refs/heads/')) {
+    const branch = ref.replace('refs/heads/', '');
+    try {
+      core.info(`Searching for open pull requests for branch ${branch}...`);
+      const { data: prs } = await octokit.rest.pulls.list({
+        owner,
+        repo,
+        head: `${owner}:${branch}`,
+        state: 'open',
+      });
+      if (prs.length > 0) {
+        core.info(`Found open pull request #${prs[0].number} for branch.`);
+        return prs[0].number;
+      }
+    } catch (error: any) {
+      core.debug(`Failed to find PR by branch name: ${error.message}`);
+    }
+  }
+
   return undefined;
 }
 
