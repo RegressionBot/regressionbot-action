@@ -1,10 +1,10 @@
 {
   "name": "regressionbot-action",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "main": "dist/index.js",
   "scripts": {
     "build": "esbuild src/index.ts --bundle --platform=node --target=node20 --minify --outfile=dist/index.js",
-    "test": "node tests/action.test.js"
+    "test": "npm run build && node tests/action.test.js"
   },
   "keywords": [
     "github-action",

@@ -1,19 +1,22 @@
-# RegressionBot GitHub Action
+# 🚀 RegressionBot GitHub Action
 
-The official GitHub Action for [RegressionBot.com](https://regressionbot.com) — the simplest way to automate visual regression testing in your CI/CD pipeline.
+[![Build & Test](https://github.com/RegressionBot/regressionbot-action/actions/workflows/ci.yml/badge.svg)](https://github.com/RegressionBot/regressionbot-action/actions)
+[![License: ISC](https://img.shields.io/badge/License-ISC-blue.svg)](https://opensource.org/licenses/ISC)
+[![Official Website](https://img.shields.io/badge/Website-regressionbot.com-blueviolet)](https://regressionbot.com)
 
-[RegressionBot](https://regressionbot.com) is a declarative visual regression testing platform that helps you catch UI changes before they reach production. It requires zero infrastructure maintenance — handling all browser execution, matrix testing, screenshot capture, and visual comparison asynchronously on its servers.
+The official GitHub Action for [RegressionBot.com](https://regressionbot.com) — the ultimate developer-first platform for automated, lightning-fast, and zero-maintenance visual regression testing.
+
+Stop worrying about CSS bugs, unexpected layout shifts, or broken mobile views slipping into production. [RegressionBot](https://regressionbot.com) automatically crawls your staging and preview environments, runs multi-device matrix tests, performs high-fidelity pixel comparison, and reports detailed visual diff metrics—all without writing a single line of browser automation code.
 
 This action runs declarative visual regression tests against your candidate environments, compares screenshots with baselines (or base origins), and reports the results directly within your GitHub pull requests and workflow runs.
 
-## Features
+---
 
-- 🚀 **Fast CI Integration**: Runs visual regression tests dynamically as part of your pull requests or deployments.
-- 💬 **GitHub Job Summary**: Publishes detailed visual diff metrics and links directly to GitHub's Step Summary.
-- 📱 **Matrix Testing**: Easily configures tests across multiple devices (Desktop, Mobile, etc.) in parallel.
-- 🔎 **Sitemap Discovery & Exclusions**: Automatically crawls pages using glob patterns.
-- 🎭 **CSS Selector Masking**: Automatically masks dynamic/noisy elements (e.g., ads, timestamps) to prevent false positives.
-- 🤖 **AI-Generated Summaries**: Pulls plain-English descriptions of what changed on pages with regressions.
+## Why RegressionBot?
+
+- **🎯 Unrivaled Visual Accuracy**: Catches real visual regressions with high-fidelity, pixel-by-pixel comparisons and layout shift detection. Avoid the headache of false positives by focusing only on true UI changes.
+- **🤖 Plain-English Visual Summaries**: Eliminates the guesswork. RegressionBot automatically generates human-readable descriptions of what visually changed on each page (e.g., *"Font color in footer changed from green to orange"* or *"Added new baseline image next to heading"*), so you can review UI updates in seconds instead of squinting at visual diff lines.
+- **🧠 Built for Agentic Workflows**: RegressionBot is natively designed to integrate with AI coding agents (such as Antigravity) and MCP tools. Coding agents can autonomously trigger tests, parse natural English summaries, and handle automated approval/rejection flows in CI/CD pipelines.
 
 ---
 
@@ -21,7 +24,7 @@ This action runs declarative visual regression tests against your candidate envi
 
 ### 1. Basic Example: Compare Preview URL with Production
 
-This workflow triggers a visual check whenever a PR is updated. It compares a staging URL against the production site.
+This workflow triggers a visual check whenever a PR is updated. It compares a staging URL against the production site and posts the results as a comment directly on the Pull Request.
 
 ```yaml
 name: Visual Regression Test
@@ -30,18 +33,24 @@ on:
   pull_request:
     branches: [ main ]
 
+# Required permissions for posting PR comments
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
   visual-test:
     runs-on: ubuntu-latest
     steps:
       - name: Run RegressionBot Check
-        uses: RegressionBot/regressionbot-action@v1
+        uses: RegressionBot/regressionbot-action@v0
         with:
           api-key: ${{ secrets.REGRESSIONBOT_API_KEY }}
           project: 'my-web-app'
           test-origin: 'https://staging.myapp.com'
           base-origin: 'https://myapp.com'
           devices: 'Desktop Chrome, iPhone 13'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 ### 2. Full Matrix Sitemap Scan
@@ -50,7 +59,7 @@ For larger projects, you can scan your sitemap and check only specific paths or 
 
 ```yaml
       - name: Scan Sitemap for Regressions
-        uses: RegressionBot/regressionbot-action@v1
+        uses: RegressionBot/regressionbot-action@v0
         with:
           api-key: ${{ secrets.REGRESSIONBOT_API_KEY }}
           project: 'marketing-site'
@@ -80,7 +89,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Update Baselines
-        uses: RegressionBot/regressionbot-action@v1
+        uses: RegressionBot/regressionbot-action@v0
         with:
           api-key: ${{ secrets.REGRESSIONBOT_API_KEY }}
           project: 'my-web-app'
@@ -91,6 +100,9 @@ jobs:
 ### 4. AWS Amplify Workflow (Dynamic Previews)
 
 Listen for AWS Amplify preview builds to succeed, dynamically parse the preview URL, and trigger a visual regression check against production:
+
+> [!IMPORTANT]
+> The AWS Amplify check run `details_url` points directly to the AWS Console build details page, which requires authentication and cannot be crawled. You must construct your public preview URL dynamically (e.g. `https://pr-${PR_NUMBER}.<appid>.amplifyapp.com`) or parse it from a custom deployment payload.
 
 ```yaml
 name: Visual Regression (AWS Amplify)
@@ -130,17 +142,18 @@ jobs:
               prNumber = context.payload.inputs['pr-number'];
             } else {
               const checkRun = context.payload.check_run;
-              previewUrl = checkRun.details_url;
               if (checkRun.pull_requests && checkRun.pull_requests.length > 0) {
                 prNumber = checkRun.pull_requests[0].number;
               }
+              // Construct your public preview URL (e.g. using your Amplify App ID and PR number)
+              previewUrl = `https://pr-${prNumber}.d123456789.amplifyapp.com`;
             }
             core.setOutput('url', previewUrl);
             core.setOutput('pr', prNumber);
 
       - name: Run Visual Check
         if: steps.env.outputs.url != ''
-        uses: RegressionBot/regressionbot-action@v1
+        uses: RegressionBot/regressionbot-action@v0
         with:
           api-key: ${{ secrets.REGRESSIONBOT_API_KEY }}
           test-origin: ${{ steps.env.outputs.url }}
@@ -156,6 +169,9 @@ jobs:
 
 Update your baselines directly from a Pull Request comment using ChatOps (e.g. typing `/approve-visual <job-id>`):
 
+> [!CAUTION]
+> Running issue comment workflows on public repositories can expose you to security vulnerabilities if anyone can execute them. Ensure you always verify the commenter's association permissions (`OWNER` or `COLLABORATOR`) before running the approval command.
+
 ```yaml
 name: ChatOps Approval
 
@@ -165,7 +181,11 @@ on:
 
 jobs:
   approve:
-    if: github.event.issue.pull_request && startsWith(github.event.comment.body, '/approve-visual')
+    # Restrict executions to owners or collaborators to prevent unauthorized approvals
+    if: |
+      github.event.issue.pull_request && 
+      startsWith(github.event.comment.body, '/approve-visual') &&
+      (github.event.comment.author_association == 'COLLABORATOR' || github.event.comment.author_association == 'OWNER')
     runs-on: ubuntu-latest
     steps:
       - name: Parse Job ID
@@ -182,7 +202,7 @@ jobs:
             core.setOutput('job_id', parts[1].trim());
 
       - name: Run Approval
-        uses: RegressionBot/regressionbot-action@v1
+        uses: RegressionBot/regressionbot-action@v0
         with:
           command: 'approve'
           api-key: ${{ secrets.REGRESSIONBOT_API_KEY }}
@@ -209,7 +229,7 @@ jobs:
 | `auto-approve` | Automatically promote test screenshots to baselines (`true`/`false`). | No | `false` |
 | `mask` | Comma-separated CSS selectors to mask/hide. | No | N/A |
 | `concurrency` | Max concurrent worker instances (1-20). | No | `10` |
-| `skip-summaries` | Skip waiting for AI-generated regression summaries (`true`/`false`). | No | `false` |
+| `skip-summaries` | Skip waiting for RegressionBot regression summaries (`true`/`false`). | No | `false` |
 | `job-id` | The Job ID (required only for `approve` or `status` commands). | No | N/A |
 | `fail-on-regression` | Fail the GitHub Action workflow if regressions are found (`true`/`false`). | No | `true` |
 | `fail-on-error` | Fail the GitHub Action workflow if execution errors occur (`true`/`false`). | No | `true` |
