@@ -204,8 +204,14 @@ function printConsoleSummary(summary: JobSummary) {
     summary.regressions.forEach((r: any) => {
       core.info(`- ${r.url} [${r.variantName}] (Score: ${r.visualMatchScore.toFixed(2)})`);
       core.info(`  Diff Image: ${r.diffUrl}`);
-      if (r.regressionbotSummary) {
-        core.info(`  AI Summary: ${r.regressionbotSummary}`);
+      if (r.regressionbotSummary && Array.isArray(r.regressionbotSummary)) {
+        core.info(`  RegressionBot Summary:`);
+        r.regressionbotSummary.forEach((item: any) => {
+          const prefix = item.label ? `${item.label}: ` : '';
+          core.info(`    - ${prefix}${item.text}`);
+        });
+      } else if (r.regressionbotSummary) {
+        core.info(`  RegressionBot Summary: ${r.regressionbotSummary}`);
       }
     });
   }
@@ -246,12 +252,30 @@ async function generateJobSummary(jobId: string, summary: JobSummary) {
   if (summary.regressions && summary.regressions.length > 0) {
     markdown += `\n#### ❌ Regressions Detected\n`;
     summary.regressions.forEach((r: any) => {
-      markdown += `- **${r.url}** [${r.variantName}] (Score: **${r.visualMatchScore.toFixed(2)}**)\n`;
-      if (r.diffUrl) {
-        markdown += `  - [View Diff Image](${r.diffUrl})\n`;
+      let urlPath = r.url;
+      try {
+        urlPath = new URL(r.url).pathname;
+      } catch (e) {
+        // Ignored
       }
-      if (r.regressionbotSummary) {
-        markdown += `  - *AI Summary:* ${r.regressionbotSummary}\n`;
+      
+      markdown += `- **${urlPath}** [${r.variantName}] (Score: **${r.visualMatchScore.toFixed(2)}**)`;
+      if (r.diffUrl) {
+        markdown += ` - [View Diff Image](${r.diffUrl})`;
+      }
+      markdown += '\n';
+
+      if (r.regressionbotSummary && Array.isArray(r.regressionbotSummary)) {
+        markdown += `  - *RegressionBot Summary:*\n`;
+        r.regressionbotSummary.forEach((item: any) => {
+          const prefix = item.label ? `**${item.label}**: ` : '';
+          markdown += `    - ${prefix}${item.text}\n`;
+        });
+      } else if (r.regressionbotSummary) {
+        const indentedSummary = typeof r.regressionbotSummary === 'string'
+          ? r.regressionbotSummary.split('\n').join('\n    ')
+          : JSON.stringify(r.regressionbotSummary);
+        markdown += `  - *RegressionBot Summary:* ${indentedSummary}\n`;
       }
     });
   }
