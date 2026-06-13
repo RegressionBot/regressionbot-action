@@ -28,7 +28,7 @@
     "regressionbot": "^1.2.0"
   },
   "devDependencies": {
-    "@types/node": "^25.9.2",
+    "@types/node": "^25.9.3",
     "@vercel/ncc": "^0.44.0",
     "esbuild": "^0.28.1",
     "typescript": "^6.0.3"
