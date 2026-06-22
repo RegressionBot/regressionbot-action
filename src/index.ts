@@ -1,6 +1,6 @@
 import * as core from '@actions/core';
 import * as github from '@actions/github';
-import { RegressionBot, JobStatus, JobSummary } from 'regressionbot';
+import { RegressionBot, JobStatus, JobSummary } from '@regressionbot/sdk';
 
 async function run() {
   try {
