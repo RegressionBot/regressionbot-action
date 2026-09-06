@@ -93,9 +93,13 @@ jobs:
         with:
           api-key: ${{ secrets.REGRESSIONBOT_API_KEY }}
           project: 'my-web-app'
-          test-origin: 'https://myapp.com'
           auto-approve: true
 ```
+
+### Managed mode vs. live-vs-live
+
+- **Live-vs-live** (`base-origin` set): both URLs are captured and compared on every run. Nothing is stored, so any inputs go. Use this for preview-vs-production.
+- **Managed** (no `base-origin`): the run is compared against the baselines saved on the project. The API locks the saved config: any input you also pass here (`test-origin`, `devices`, `concurrency`, `scan`, `mask`, ...) must match what is stored, or the run is rejected with "Params differ from stored config". Anything you omit is filled from the saved config, so the simplest managed run is `project` alone. Change the config in the RegressionBot dashboard, not in the workflow.
 
 ### 4. AWS Amplify Workflow (Dynamic Previews)
 
@@ -219,16 +223,16 @@ jobs:
 | --- | --- | --- | --- |
 | `api-key` | Your RegressionBot API Key. | **Yes** | N/A |
 | `command` | The action command to run (`check`, `approve`, `status`). | No | `check` |
-| `project` | The target Project ID configured in RegressionBot. | No (req. if no `base-origin`) | N/A |
-| `test-origin` | The URL of the candidate environment to test. | Yes (for `check`) | N/A |
+| `project` | The project name in RegressionBot. Created on first run if it does not exist. | No (req. if no `base-origin`) | N/A |
+| `test-origin` | The URL of the candidate environment to test. | No (req. if no `project`) | N/A |
 | `base-origin` | The baseline URL/origin to compare against. | No | N/A |
 | `sitemap-url` | Explicit sitemap location (e.g. `https://example.com/sitemap.xml`). | No | N/A |
-| `devices` | Comma-separated list of devices to test (e.g., `Desktop Chrome, iPhone 13`). | No | `Desktop Chrome` |
+| `devices` | Comma-separated list of devices to test (e.g., `Desktop Chrome, iPhone 13`). | No | `Desktop Chrome`, or the saved project config |
 | `scan` | Glob pattern to discover URLs within the sitemap (e.g., `/**`, `/docs/**`). | No | N/A |
 | `exclude` | Comma-separated glob patterns to exclude from scanning. | No | N/A |
 | `auto-approve` | Automatically promote test screenshots to baselines (`true`/`false`). | No | `false` |
 | `mask` | Comma-separated CSS selectors to mask/hide. | No | N/A |
-| `concurrency` | Max concurrent worker instances (1-20). | No | `10` |
+| `concurrency` | Pages captured in parallel (1-20). | No | `4`, or the saved project config |
 | `skip-summaries` | Skip waiting for RegressionBot regression summaries (`true`/`false`). | No | `false` |
 | `job-id` | The Job ID (required only for `approve` or `status` commands). | No | N/A |
 | `fail-on-regression` | Fail the GitHub Action workflow if regressions are found (`true`/`false`). | No | `true` |

@@ -74,6 +74,16 @@ global.fetch = async (url, options) => {
     };
   }
   
+  if (parsedUrl.pathname === '/project/saved-proj/run') {
+    assert.strictEqual(options.method, 'POST');
+    const body = JSON.parse(options.body);
+    assert.deepStrictEqual(body, { autoApprove: true }, 'Paramless project run must send only what the user set');
+    return {
+      ok: true,
+      json: async () => ({ jobId: 'job-xyz-987' })
+    };
+  }
+
   if (parsedUrl.pathname === '/job/job-xyz-987') {
     return {
       ok: true,
@@ -203,6 +213,20 @@ async function runTest() {
   // Verify GitHub PR comment was updated
   assert.ok(githubCommentUpdated, 'Should have updated the existing GitHub PR comment');
   console.log('✅ GitHub PR comment update verified successfully.');
+
+  // Second scenario: project only, no test-origin -> runs the saved config, sends no defaults
+  process.env['INPUT_TEST-ORIGIN'] = '';
+  process.env['INPUT_PROJECT'] = 'saved-proj';
+  process.env['INPUT_DEVICES'] = '';
+  process.env['INPUT_AUTO-APPROVE'] = 'true';
+  process.env['INPUT_GITHUB-TOKEN'] = '';
+  fetchCalls.length = 0;
+  delete require.cache[require.resolve('../dist/index.js')];
+  require('../dist/index.js');
+  await new Promise(resolve => setTimeout(resolve, 1500));
+  assert.ok(fetchCalls.some(c => c.url.endsWith('/project/saved-proj/run')), 'Should run the saved project');
+  assert.ok(!fetchCalls.some(c => c.url.endsWith('/crawl')), 'Should not call /crawl without test-origin');
+  console.log('✅ Saved-project run verified successfully.');
 
   // Cleanup
   server.close();
