@@ -14,10 +14,10 @@ inputs:
     description: 'RegressionBot API Key'
     required: true
   project:
-    description: 'Project ID (required for check)'
+    description: 'Project name. With no other inputs the saved project config is run as-is.'
     required: false
   test-origin:
-    description: 'The candidate URL to test (required for check)'
+    description: 'The candidate URL to test (required unless project is set)'
     required: false
   base-origin:
     description: 'Optional baseline URL to compare against'
@@ -26,9 +26,8 @@ inputs:
     description: 'Explicit sitemap.xml location'
     required: false
   devices:
-    description: 'Comma-separated list of devices (e.g. "Desktop Chrome, iPhone 13")'
+    description: 'Comma-separated list of devices (e.g. "Desktop Chrome, iPhone 13"). Default: Desktop Chrome, or the saved project config.'
     required: false
-    default: 'Desktop Chrome'
   scan:
     description: 'Glob pattern to scan (e.g. "/**", "/blog/**")'
     required: false
@@ -43,9 +42,8 @@ inputs:
     description: 'Comma-separated CSS selectors to mask (e.g. ".ads, #modal")'
     required: false
   concurrency:
-    description: 'Max concurrent workers (default: 10)'
+    description: 'Pages captured in parallel, 1-20. Default: 4, or the saved project config.'
     required: false
-    default: '10'
   skip-summaries:
     description: 'Skip waiting for RegressionBot regression summaries (true/false)'
     required: false

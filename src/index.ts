@@ -1,6 +1,6 @@
 import * as core from '@actions/core';
 import * as github from '@actions/github';
-import { RegressionBot, JobStatus, JobSummary } from 'regressionbot';
+import { RegressionBot, JobStatus, JobSummary } from '@regressionbot/sdk';
 
 async function run() {
   try {
@@ -37,86 +37,71 @@ async function run() {
   }
 }
 
+function csv(name: string): string[] {
+  return core.getInput(name).split(',').map(s => s.trim()).filter(Boolean);
+}
+
 async function handleCheck(sdk: RegressionBot) {
-  const testOrigin = core.getInput('test-origin', { required: true });
-  const projectId = core.getInput('project');
+  const testOrigin = core.getInput('test-origin');
+  const projectName = core.getInput('project');
   const baseOrigin = core.getInput('base-origin');
 
-  if (!projectId && !baseOrigin) {
-    throw new Error('You must provide either a project ID ("project") or a base origin URL ("base-origin") to compare against.');
+  if (!projectName && !baseOrigin) {
+    throw new Error('You must provide either a project name ("project") or a base origin URL ("base-origin") to compare against.');
+  }
+  if (!testOrigin && !projectName) {
+    throw new Error('"test-origin" is required unless "project" names a saved project to run.');
   }
 
-  core.info(`🚀 Initializing RegressionBot visual test for: ${testOrigin}`);
-
-  const builder = sdk.test(testOrigin);
-
-  if (projectId) {
-    builder.forProject(projectId);
-    core.info(`📊 Project ID: ${projectId}`);
-  }
-
-  if (baseOrigin) {
-    builder.against(baseOrigin);
-    core.info(`🔍 Base Origin: ${baseOrigin}`);
-  }
-
+  // Only what the user set is sent. The API compares every inline param against the
+  // saved project config and rejects the run if any differ, so a default here is a bug.
   const sitemapUrl = core.getInput('sitemap-url');
-  if (sitemapUrl) {
-    builder.sitemap(sitemapUrl);
-    core.info(`🗺️ Sitemap URL: ${sitemapUrl}`);
-  }
-
-  // Parse devices
-  const devicesInput = core.getInput('devices') || 'Desktop Chrome';
-  const devices = devicesInput.split(',').map(d => d.trim()).filter(Boolean);
-  if (devices.length > 0) {
-    builder.on(devices);
-    core.info(`📱 Devices: ${devices.join(', ')}`);
-  }
-
-  // Parse scan/exclude
+  const devices = csv('devices');
   const scan = core.getInput('scan');
-  if (scan) {
-    const excludeInput = core.getInput('exclude');
-    const exclude = excludeInput ? excludeInput.split(',').map(e => e.trim()).filter(Boolean) : [];
-    builder.scan(scan, { exclude });
-    core.info(`🔎 Scanning sitemap with pattern: "${scan}"`);
-    if (exclude.length > 0) {
-      core.info(`🚫 Excluding patterns: ${exclude.join(', ')}`);
-    }
-  }
-
-  // Parse auto-approve
-  const autoApprove = core.getBooleanInput('auto-approve');
-  if (autoApprove) {
-    builder.autoApprove(true);
-    core.info(`✨ Auto-approve baselines is enabled.`);
-  }
-
-  // Parse masks
-  const maskInput = core.getInput('mask');
-  if (maskInput) {
-    const masks = maskInput.split(',').map(m => m.trim()).filter(Boolean);
-    if (masks.length > 0) {
-      builder.mask(masks);
-      core.info(`🎭 Hiding elements matching selectors: ${masks.join(', ')}`);
-    }
-  }
-
-  // Parse concurrency
+  const exclude = csv('exclude');
+  const masks = csv('mask');
   const concurrencyInput = core.getInput('concurrency');
-  if (concurrencyInput) {
-    const concurrency = parseInt(concurrencyInput, 10);
-    if (!isNaN(concurrency)) {
-      builder.concurrency(concurrency);
-      core.info(`⚙️ Concurrency: ${concurrency}`);
-    }
+  const concurrency = concurrencyInput ? parseInt(concurrencyInput, 10) : NaN;
+  const autoApprove = core.getBooleanInput('auto-approve');
+
+  if (projectName) core.info(`📊 Project: ${projectName}`);
+  if (baseOrigin) core.info(`🔍 Base Origin: ${baseOrigin}`);
+  if (sitemapUrl) core.info(`🗺️ Sitemap URL: ${sitemapUrl}`);
+  if (devices.length) core.info(`📱 Devices: ${devices.join(', ')}`);
+  if (scan) core.info(`🔎 Scanning sitemap with pattern: "${scan}"`);
+  if (exclude.length) core.info(`🚫 Excluding patterns: ${exclude.join(', ')}`);
+  if (masks.length) core.info(`🎭 Hiding elements matching selectors: ${masks.join(', ')}`);
+  if (!isNaN(concurrency)) core.info(`⚙️ Concurrency: ${concurrency}`);
+  if (autoApprove) core.info('✨ Auto-approve baselines is enabled.');
+
+  let job;
+  if (testOrigin) {
+    core.info(`🚀 Initializing RegressionBot visual test for: ${testOrigin}`);
+    const builder = sdk.test(testOrigin);
+    if (projectName) builder.forProject(projectName);
+    if (baseOrigin) builder.against(baseOrigin);
+    if (sitemapUrl) builder.sitemap(sitemapUrl);
+    if (devices.length) builder.on(devices);
+    if (scan) builder.scan(scan, { exclude });
+    if (masks.length) builder.mask(masks);
+    if (!isNaN(concurrency)) builder.concurrency(concurrency);
+    if (autoApprove) builder.autoApprove(true);
+    job = await builder.run();
+  } else {
+    core.info(`🚀 Running saved project: ${projectName}`);
+    job = await sdk.runProject(projectName, {
+      baseOrigin: baseOrigin || undefined,
+      sitemapUrl: sitemapUrl || undefined,
+      devices: devices.length ? devices : undefined,
+      scans: scan ? [{ pattern: scan, options: { exclude } }] : undefined,
+      masks: masks.length ? masks : undefined,
+      concurrency: isNaN(concurrency) ? undefined : concurrency,
+      autoApprove: autoApprove || undefined,
+    });
   }
 
   const skipSummaries = core.getBooleanInput('skip-summaries');
 
-  // Trigger the job
-  const job = await builder.run();
   core.info(`✅ Job successfully created! Job ID: ${job.jobId}`);
   core.setOutput('job-id', job.jobId);
 
@@ -183,8 +168,6 @@ async function handleCheck(sdk: RegressionBot) {
     core.setFailed(`❌ RegressionBot detected ${summary.regressionCount} regressions.`);
   } else if (summary.errorCount > 0 && failOnError) {
     core.setFailed(`⚠️ RegressionBot job completed with ${summary.errorCount} errors.`);
-  } else if (status.status === 'FAILED') {
-    core.setFailed(`❌ RegressionBot job failed: ${status.error}`);
   } else {
     core.info('🎉 RegressionBot run finished successfully!');
   }
