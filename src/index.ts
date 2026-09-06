@@ -1,6 +1,6 @@
 import * as core from '@actions/core';
 import * as github from '@actions/github';
-import { RegressionBot, JobStatus, JobSummary } from '@regressionbot/sdk';
+import { RegressionBot, JobStatus, JobSummary, PageResult, RunContext } from '@regressionbot/sdk';
 
 async function run() {
   try {
@@ -74,6 +74,22 @@ async function handleCheck(sdk: RegressionBot) {
   if (!isNaN(concurrency)) core.info(`⚙️ Concurrency: ${concurrency}`);
   if (autoApprove) core.info('✨ Auto-approve baselines is enabled.');
 
+  const failOn = parseFailOn(core.getInput('fail-on'));
+  const skipSummaries = core.getBooleanInput('skip-summaries');
+  const githubToken = core.getInput('github-token');
+  const octokit = githubToken ? github.getOctokit(githubToken) : undefined;
+  const { owner, repo } = github.context.repo;
+  const prNumber = octokit ? await resolvePrNumber(octokit, owner, repo) : undefined;
+  const runContext = await buildRunContext(octokit, prNumber);
+
+  if (runContext) core.info(`🧭 Intent context: ${Object.keys(runContext).join(', ')}`);
+  if (failOn === 'unintended' && !runContext) {
+    core.warning('fail-on: unintended needs intent to judge against. Set change-description, or run on a pull request with send-pr-context enabled. Every regression will block.');
+  }
+  if (failOn === 'unintended' && skipSummaries) {
+    core.warning('skip-summaries leaves every change unjudged, so fail-on: unintended cannot excuse any of them.');
+  }
+
   let job;
   if (testOrigin) {
     core.info(`🚀 Initializing RegressionBot visual test for: ${testOrigin}`);
@@ -86,6 +102,7 @@ async function handleCheck(sdk: RegressionBot) {
     if (masks.length) builder.mask(masks);
     if (!isNaN(concurrency)) builder.concurrency(concurrency);
     if (autoApprove) builder.autoApprove(true);
+    if (runContext) builder.withContext(runContext);
     job = await builder.run();
   } else {
     core.info(`🚀 Running saved project: ${projectName}`);
@@ -97,10 +114,9 @@ async function handleCheck(sdk: RegressionBot) {
       masks: masks.length ? masks : undefined,
       concurrency: isNaN(concurrency) ? undefined : concurrency,
       autoApprove: autoApprove || undefined,
+      runContext,
     });
   }
-
-  const skipSummaries = core.getBooleanInput('skip-summaries');
 
   core.info(`✅ Job successfully created! Job ID: ${job.jobId}`);
   core.setOutput('job-id', job.jobId);
@@ -141,15 +157,16 @@ async function handleCheck(sdk: RegressionBot) {
   core.setOutput('overall-score', summary.overallScore.toString());
   core.setOutput('regression-count', summary.regressionCount.toString());
   core.setOutput('error-count', summary.errorCount.toString());
+  const ia = summary.intentAssessment;
+  core.setOutput('intent-summary', ia?.summary || '');
+  core.setOutput('bug-count', String(ia?.bugCount ?? 0));
+  core.setOutput('intentional-count', String(ia?.intentionalCount ?? 0));
+  core.setOutput('needs-review-count', String(ia?.needsReviewCount ?? 0));
 
   // Generate GitHub Job Summary Markdown
   const markdown = await generateJobSummary(job.jobId, summary);
 
-  const githubToken = core.getInput('github-token');
-  if (githubToken) {
-    const octokit = github.getOctokit(githubToken);
-    const { owner, repo } = github.context.repo;
-    const prNumber = await resolvePrNumber(octokit, owner, repo);
+  if (octokit) {
     if (prNumber) {
       await postOrUpdateComment(octokit, owner, repo, prNumber, markdown);
     } else {
@@ -164,8 +181,14 @@ async function handleCheck(sdk: RegressionBot) {
   const failOnRegression = core.getBooleanInput('fail-on-regression');
   const failOnError = core.getBooleanInput('fail-on-error');
 
-  if (summary.regressionCount > 0 && failOnRegression) {
-    core.setFailed(`❌ RegressionBot detected ${summary.regressionCount} regressions.`);
+  const blocking = failOn === 'unintended' ? summary.regressions.filter(isBlocking) : summary.regressions;
+  const excused = summary.regressions.length - blocking.length;
+
+  if (blocking.length > 0 && failOnRegression) {
+    const excusedNote = excused > 0 ? ` (${excused} judged intentional or noise and excused)` : '';
+    core.setFailed(`❌ RegressionBot detected ${blocking.length} regressions${excusedNote}.`);
+  } else if (excused > 0 && failOnRegression) {
+    core.info(`🎉 All ${excused} regression(s) match the stated intent. Build passes under fail-on: unintended.`);
   } else if (summary.errorCount > 0 && failOnError) {
     core.setFailed(`⚠️ RegressionBot job completed with ${summary.errorCount} errors.`);
   } else {
@@ -196,6 +219,104 @@ async function handleStatus(sdk: RegressionBot) {
   core.setOutput('status', status.status);
 }
 
+type FailOn = 'any' | 'unintended';
+
+function parseFailOn(raw: string): FailOn {
+  if (!raw || raw === 'any') return 'any';
+  if (raw === 'unintended') return 'unintended';
+  throw new Error(`fail-on must be 'any' or 'unintended', got '${raw}'.`);
+}
+
+/**
+ * Whether one regression fails the build under fail-on: unintended. No verdict always
+ * blocks: nothing judged it, and treating unjudged as wanted would turn a missing
+ * verdict into a silent pass. Same rule as the SDK CLI.
+ */
+function isBlocking(r: PageResult): boolean {
+  if (!r.verdict) return true;
+  return r.verdict.decision === 'bug' || r.verdict.decision === 'needs_review';
+}
+
+const VERDICT_ICON: Record<string, string> = {
+  bug: '🐛', needs_review: '👀', intentional: '✅', noise: '🔇',
+};
+
+function verdictLabel(r: PageResult): string {
+  if (!r.verdict) return '';
+  return `${VERDICT_ICON[r.verdict.decision] || ''} ${r.verdict.decision} (confidence ${r.verdict.minConfidence.toFixed(2)})`;
+}
+
+/** Bugs and needs-review first, so a reviewer sees what matters before what was expected. */
+function sortByVerdict(regressions: PageResult[]): PageResult[] {
+  return [...regressions].sort((a, b) => Number(isBlocking(b)) - Number(isBlocking(a)));
+}
+
+/** What the user typed in the workflow. Always sent, regardless of send-pr-context. */
+function explicitContext(): RunContext {
+  const ctx: RunContext = {};
+  const desc = core.getInput('change-description');
+  if (desc) ctx.changeDescription = desc;
+  const expected = csv('expected-changes');
+  if (expected.length) ctx.expectedChanges = expected;
+  return ctx;
+}
+
+/** What the triggering event already carries, with no API call. */
+function eventContext(): RunContext {
+  const ctx: RunContext = {};
+  const pr = github.context.payload.pull_request;
+  if (pr) {
+    if (pr.title) ctx.prTitle = pr.title;
+    if (pr.body) ctx.prDescription = pr.body;
+    if (pr.head?.sha) ctx.gitCommitSha = pr.head.sha;
+  } else if (github.context.sha) {
+    ctx.gitCommitSha = github.context.sha;
+    const msg = github.context.payload.head_commit?.message;
+    if (msg) ctx.gitCommitMessage = String(msg).split('\n')[0];
+  }
+  return ctx;
+}
+
+const SCOPE_CAP = 50;
+
+/**
+ * Commit subject and changed files, which need the API. Either lookup can be denied on a
+ * fork PR with a read-only token; a denied lookup drops the field and never fails the run.
+ */
+async function lookupContext(octokit: any, prNumber: number): Promise<RunContext> {
+  const ctx: RunContext = {};
+  const { owner, repo } = github.context.repo;
+  try {
+    const { data: commits } = await octokit.rest.pulls.listCommits({ owner, repo, pull_number: prNumber, per_page: 100 });
+    const last = commits[commits.length - 1];
+    if (last?.commit?.message) ctx.gitCommitMessage = String(last.commit.message).split('\n')[0];
+  } catch (error: any) {
+    core.debug(`Could not read PR commits for intent context: ${error.message}`);
+  }
+  try {
+    const { data: files } = await octokit.rest.pulls.listFiles({ owner, repo, pull_number: prNumber, per_page: SCOPE_CAP });
+    if (files.length) ctx.scope = files.map((f: any) => f.filename);
+  } catch (error: any) {
+    core.debug(`Could not read PR files for intent context: ${error.message}`);
+  }
+  return ctx;
+}
+
+/**
+ * The intent RegressionBot judges each change against. send-pr-context: false is the
+ * opt-out: nothing is read from the PR or commit, and only explicit inputs are sent.
+ */
+async function buildRunContext(octokit: any, prNumber: number | undefined): Promise<RunContext | undefined> {
+  let ctx = explicitContext();
+  if (core.getBooleanInput('send-pr-context')) {
+    ctx = { ...eventContext(), ...ctx };
+    if (octokit && prNumber) ctx = { ...(await lookupContext(octokit, prNumber)), ...ctx };
+  } else {
+    core.info('🧭 send-pr-context is false: nothing is read from the pull request or commit.');
+  }
+  return Object.keys(ctx).length ? ctx : undefined;
+}
+
 function getStabilityLabel(score: number): string {
   if (score === 100) {
     return '🟢 No Changes';
@@ -224,6 +345,11 @@ function printConsoleSummary(summary: JobSummary) {
   core.info(`New Baselines: ${summary.newBaselineCount}`);
   core.info(`Matches: ${summary.matchCount}`);
   core.info(`Errors: ${summary.errorCount}`);
+  const ia = summary.intentAssessment;
+  if (ia?.intentProvided) {
+    core.info(`\n🧭 Intent: ${ia.summary}`);
+    core.info(`   bugs: ${ia.bugCount}, intentional: ${ia.intentionalCount}, noise: ${ia.noiseCount}, needs review: ${ia.needsReviewCount}`);
+  }
 
   if (summary.newBaselineCount > 0) {
     core.info('\n✨ New Baselines Created:');
@@ -234,8 +360,9 @@ function printConsoleSummary(summary: JobSummary) {
 
   if (summary.regressions.length > 0) {
     core.info('\n❌ Regressions Found:');
-    summary.regressions.forEach((r: any) => {
+    sortByVerdict(summary.regressions).forEach((r: any) => {
       core.info(`- ${getUrlPath(r.url)} [${r.variantName}] (Score: ${r.visualMatchScore.toFixed(2)})`);
+      if (r.verdict) core.info(`  Verdict: ${verdictLabel(r)}`);
       core.info(`  Diff Image: ${r.diffUrl}`);
       if (r.regressionbotSummary && Array.isArray(r.regressionbotSummary)) {
         core.info(`  RegressionBot Summary:`);
@@ -265,13 +392,20 @@ function printConsoleSummary(summary: JobSummary) {
   core.endGroup();
 }
 
+function intentMarkdown(summary: JobSummary): string {
+  const ia = summary.intentAssessment;
+  if (!ia?.intentProvided) return '';
+  return `**🧭 Intent:** ${ia.summary}\n` +
+    `bugs: ${ia.bugCount} · intentional: ${ia.intentionalCount} · noise: ${ia.noiseCount} · needs review: ${ia.needsReviewCount}\n`;
+}
+
 async function generateJobSummary(jobId: string, summary: JobSummary): Promise<string> {
   let markdown = `### 🚀 RegressionBot Visual Test Results
 
 **Job ID:** \`${jobId}\`
 **Status:** \`${summary.status}\`
 **Stability Score:** \`${summary.overallScore}/100\` (${getStabilityLabel(summary.overallScore)})
-
+${intentMarkdown(summary)}
 #### Summary Metrics
 | Metric | Value |
 | --- | --- |
@@ -297,7 +431,7 @@ async function generateJobSummary(jobId: string, summary: JobSummary): Promise<s
 
   if (summary.regressions && summary.regressions.length > 0) {
     markdown += `\n#### ❌ Regressions Detected\n`;
-    summary.regressions.forEach((r: any) => {
+    sortByVerdict(summary.regressions).forEach((r: any) => {
       let urlPath = r.url;
       try {
         urlPath = new URL(r.url).pathname;
@@ -306,6 +440,7 @@ async function generateJobSummary(jobId: string, summary: JobSummary): Promise<s
       }
       
       markdown += `- **${urlPath}** [${r.variantName}] (Score: **${r.visualMatchScore.toFixed(2)}**)`;
+      if (r.verdict) markdown += ` — ${verdictLabel(r)}`;
       if (r.diffUrl) {
         markdown += ` - [View Diff Image](${r.diffUrl})`;
       }
@@ -315,7 +450,8 @@ async function generateJobSummary(jobId: string, summary: JobSummary): Promise<s
         markdown += `  - **RegressionBot Summary:**\n`;
         r.regressionbotSummary.forEach((item: any) => {
           const prefix = item.label ? `**${item.label}**: ` : '';
-          markdown += `    - ${prefix}${item.text}\n`;
+          const why = item.verdict ? ` _(${item.verdict.decision}: ${item.verdict.reasoning})_` : '';
+          markdown += `    - ${prefix}${item.text}${why}\n`;
         });
       } else if (r.regressionbotSummary) {
         markdown += `  - **RegressionBot Summary:**\n`;

@@ -96,6 +96,28 @@ jobs:
           auto-approve: true
 ```
 
+### Intent-aware results
+
+On a `pull_request` event the action sends the PR title, description, head commit and changed files to RegressionBot as **intent context**. Each regression is then judged against it as `intentional`, `bug`, `noise` or `needs_review`, and the PR comment leads with a one-line verdict such as *"All 2 regression(s) match the stated intent. Safe to approve."* Bugs are listed first.
+
+Nothing changes in how the build passes or fails unless you opt in:
+
+```yaml
+      - uses: RegressionBot/regressionbot-action@v0
+        with:
+          api-key: ${{ secrets.REGRESSIONBOT_API_KEY }}
+          project: 'my-web-app'
+          test-origin: ${{ steps.deploy.outputs.preview-url }}
+          base-origin: 'https://myapp.com'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          change-description: 'Larger hero heading, green CTA'   # optional, sharpens the judgement
+          fail-on: unintended                                     # only bugs and needs-review fail the build
+```
+
+`fail-on: unintended` excuses regressions judged intentional or noise. A regression with no verdict always fails, so `skip-summaries: true` or a run with no intent context behaves like `fail-on: any`. A wrong "intentional" verdict lets a change through, so keep the default `any` on branches where that matters.
+
+**Opting out.** Set `send-pr-context: false` and the action reads nothing from the pull request or commit. Only `change-description` and `expected-changes` are sent, if you set them. The PR body is truncated to 2000 characters by the API, and RegressionBot treats it as untrusted input to the model.
+
 ### Managed mode vs. live-vs-live
 
 - **Live-vs-live** (`base-origin` set): both URLs are captured and compared on every run. Nothing is stored, so any inputs go. Use this for preview-vs-production.
@@ -237,6 +259,10 @@ jobs:
 | `job-id` | The Job ID (required only for `approve` or `status` commands). | No | N/A |
 | `fail-on-regression` | Fail the GitHub Action workflow if regressions are found (`true`/`false`). | No | `true` |
 | `fail-on-error` | Fail the GitHub Action workflow if execution errors occur (`true`/`false`). | No | `true` |
+| `change-description` | What this run is meant to change, for intent judgement. | No | N/A |
+| `expected-changes` | Comma-separated list of expected visual changes. | No | N/A |
+| `send-pr-context` | Read PR title, body, commit and changed files as intent context. `false` sends nothing from the PR. | No | `true` |
+| `fail-on` | `any` regression fails the build, or only `unintended` ones (bug or needs review). | No | `any` |
 | `github-token` | GitHub token (`${{ secrets.GITHUB_TOKEN }}`) to automatically post/update a PR comment with test results. | No | N/A |
 | `pr-number` | Explicit PR number to comment on (auto-detected if omitted on PR/issue events). | No | N/A |
 
@@ -250,6 +276,10 @@ jobs:
 | `regression-count` | The number of page regressions detected. |
 | `error-count` | The number of pages that failed to crawl/test. |
 | `summary` | The full Markdown summary detailing the run results. |
+| `intent-summary` | One line on how the changes line up with the stated intent. Empty when no intent was sent. |
+| `bug-count` | Regressions judged unintended. |
+| `intentional-count` | Regressions judged intentional. |
+| `needs-review-count` | Regressions the judgement could not settle. |
 
 ## Security & Permissions
 
