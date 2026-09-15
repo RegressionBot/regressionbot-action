@@ -1,6 +1,6 @@
 {
   "name": "regressionbot-action",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "main": "dist/index.js",
   "scripts": {
     "build": "esbuild src/index.ts --bundle --platform=node --target=node20 --minify --outfile=dist/index.js",
@@ -25,7 +25,7 @@
   "dependencies": {
     "@actions/core": "^3.0.1",
     "@actions/github": "^9.1.1",
-    "@regressionbot/sdk": "^2.2.1"
+    "@regressionbot/sdk": "^2.3.0"
   },
   "devDependencies": {
     "@types/node": "^25.9.3",

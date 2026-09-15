@@ -59,6 +59,20 @@ inputs:
     description: 'Fail the action build if errors are encountered (true/false)'
     required: false
     default: 'true'
+  change-description:
+    description: 'What this run is meant to change. Lets RegressionBot judge each change as intentional, a bug, or noise.'
+    required: false
+  expected-changes:
+    description: 'Comma-separated list of expected visual changes'
+    required: false
+  send-pr-context:
+    description: 'Read the PR title, description, commit and changed files as intent context (true/false). Set false to send nothing from the PR.'
+    required: false
+    default: 'true'
+  fail-on:
+    description: 'What fails the build: "any" regression (default), or only "unintended" ones (judged bug or needs review; unjudged changes still fail)'
+    required: false
+    default: 'any'
   github-token:
     description: 'GitHub token to automatically post/update a Pull Request comment'
     required: false
@@ -79,6 +93,14 @@ outputs:
     description: 'The number of errors encountered'
   summary:
     description: 'A markdown summary of the job run'
+  intent-summary:
+    description: 'One line on how the changes line up with the stated intent (empty when no intent was sent)'
+  bug-count:
+    description: 'Regressions judged unintended'
+  intentional-count:
+    description: 'Regressions judged intentional'
+  needs-review-count:
+    description: 'Regressions the judgement could not settle'
 
 runs:
   using: 'node20'
