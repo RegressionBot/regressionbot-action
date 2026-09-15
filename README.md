@@ -114,7 +114,14 @@ Nothing changes in how the build passes or fails unless you opt in:
           fail-on: unintended                                     # only bugs and needs-review fail the build
 ```
 
-`fail-on: unintended` excuses regressions judged intentional or noise. A regression with no verdict always fails, so `skip-summaries: true` or a run with no intent context behaves like `fail-on: any`. A wrong "intentional" verdict lets a change through, so keep the default `any` on branches where that matters.
+`fail-on: unintended` passes the build only when RegressionBot's job-level intent decision is `pass`: every changed page was judged intentional or noise. A decision of `fail` (a page contradicts the intent), `review` (a page needs a person, or was never judged) or `not_judged` (no intent was sent) fails the build, so `skip-summaries: true` or a run with no context behaves like `fail-on: any`.
+
+Two things decide how often you get `pass`:
+
+- **A specific PR title or description.** A page is `intentional` only when the intent names the change, and the comment quotes the words that cover it. A vague title such as "Minor fixes" makes `intentional` unavailable, and every change lands in `review`. Write what changed and why, or set `change-description`.
+- **Something to judge against.** A commit SHA and a file list alone are not intent. A `push` event with no commit message, or a PR with an empty title, gets no verdict.
+
+A wrong "intentional" verdict lets a change through, so keep the default `any` on branches where that matters.
 
 **Opting out.** Set `send-pr-context: false` and the action reads nothing from the pull request or commit. Only `change-description` and `expected-changes` are sent, if you set them. The PR body is truncated to 2000 characters by the API, and RegressionBot treats it as untrusted input to the model.
 

@@ -113,10 +113,13 @@ global.fetch = async (url, options) => {
         matchCount: 1,
         errorCount: 0,
         intentAssessment: lastCrawlBody && lastCrawlBody.runContext
-          ? { intentProvided: true, bugCount: 0, intentionalCount: 1, noiseCount: 0, needsReviewCount: 0, allAccountedFor: true,
-              summary: 'All 1 regression(s) match the stated intent. Safe to approve.' }
+          ? (process.env.MOCK_DECISION === 'review'
+              ? { intentProvided: true, bugCount: 0, intentionalCount: 0, noiseCount: 0, needsReviewCount: 1, allAccountedFor: false,
+                  decision: 'review', summary: '1 requiring review. See regressions for details.' }
+              : { intentProvided: true, bugCount: 0, intentionalCount: 1, noiseCount: 0, needsReviewCount: 0, allAccountedFor: true,
+                  decision: 'pass', summary: 'All 1 regression(s) match the stated intent. Safe to approve.' })
           : { intentProvided: false, bugCount: 0, intentionalCount: 0, noiseCount: 0, needsReviewCount: 0, allAccountedFor: false,
-              summary: 'No intent context provided. 1 regression(s) detected — manual review required.' },
+              decision: 'not_judged', summary: 'No intent context provided. 1 regression(s) detected — manual review required.' },
         regressions: [
           {
             url: 'https://preview.example.com/blog',
@@ -124,7 +127,9 @@ global.fetch = async (url, options) => {
             visualMatchScore: 90.5,
             diffUrl: 'https://regressionbot.com/diff-1.png',
             ...(lastCrawlBody && lastCrawlBody.runContext
-              ? { verdict: { decision: 'intentional', minConfidence: 0.9, avgConfidence: 0.94, regions: {} } }
+              ? { verdict: process.env.MOCK_DECISION === 'review'
+                  ? { decision: 'needs_review', minConfidence: 0.55, avgConfidence: 0.55, regions: {}, reasoning: 'The intent names no heading change.' }
+                  : { decision: 'intentional', minConfidence: 0.9, avgConfidence: 0.9, regions: {}, reasoning: 'Heading grew as the PR says.', coveredBy: 'Bigger hero heading' } }
               : {}),
             regressionbotSummary: [
               { label: 'Header', text: 'Increased font size.' },
@@ -234,6 +239,7 @@ async function runTest() {
   assert.ok(summaryContent.includes('- Button color changed.'), 'Should contain list item without label');
   assert.ok(summaryContent.includes('**🧭 Intent:** All 1 regression(s) match the stated intent.'), 'Should show the intent line');
   assert.ok(summaryContent.includes('✅ intentional (confidence 0.90)'), 'Should show the verdict on the regression');
+  assert.ok(summaryContent.includes('Heading grew as the PR says. — covered by: "Bigger hero heading"'), 'Should show reasoning and the quoted intent words');
   assert.ok(outputContent.includes('intentional-count') && outputContent.includes('bug-count'), 'Should output verdict counts');
   console.log('✅ GitHub Step Summary verified successfully.');
 
@@ -269,7 +275,13 @@ async function runTest() {
   process.exitCode = 0;
   await rerun();
   assert.strictEqual(process.exitCode, 0, 'An intentional regression must not fail the build under fail-on: unintended');
-  console.log('✅ fail-on: unintended excuses an intentional regression.');
+  console.log('✅ fail-on: unintended passes on decision: pass.');
+  process.env.MOCK_DECISION = 'review';
+  await rerun();
+  assert.strictEqual(process.exitCode, 1, 'decision: review must fail the build under fail-on: unintended');
+  process.exitCode = 0;
+  delete process.env.MOCK_DECISION;
+  console.log('✅ fail-on: unintended fails on decision: review.');
   process.env['INPUT_FAIL-ON'] = 'any';
   await rerun();
   assert.strictEqual(process.exitCode, 1, 'fail-on: any must still fail on the same regression');

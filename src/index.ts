@@ -181,14 +181,17 @@ async function handleCheck(sdk: RegressionBot) {
   const failOnRegression = core.getBooleanInput('fail-on-regression');
   const failOnError = core.getBooleanInput('fail-on-error');
 
-  const blocking = failOn === 'unintended' ? summary.regressions.filter(isBlocking) : summary.regressions;
-  const excused = summary.regressions.length - blocking.length;
+  // Under fail-on: unintended the API's job-level decision is the gate. 'pass' is the only
+  // green; 'fail', 'review' and 'not_judged' all block, so an unjudged change never slips
+  // through. The rule lives in the API, not here.
+  const decision = ia?.decision ?? 'not_judged';
+  const cleared = failOn === 'unintended' && summary.regressionCount > 0 && decision === 'pass';
 
-  if (blocking.length > 0 && failOnRegression) {
-    const excusedNote = excused > 0 ? ` (${excused} judged intentional or noise and excused)` : '';
-    core.setFailed(`❌ RegressionBot detected ${blocking.length} regressions${excusedNote}.`);
-  } else if (excused > 0 && failOnRegression) {
-    core.info(`🎉 All ${excused} regression(s) match the stated intent. Build passes under fail-on: unintended.`);
+  if (summary.regressionCount > 0 && failOnRegression && !cleared) {
+    const reason = failOn === 'unintended' ? ` Intent decision: ${decision}. ${ia?.summary || ''}` : '';
+    core.setFailed(`❌ RegressionBot detected ${summary.regressionCount} regressions.${reason}`);
+  } else if (cleared && failOnRegression) {
+    core.info(`🎉 ${ia?.summary} Build passes under fail-on: unintended.`);
   } else if (summary.errorCount > 0 && failOnError) {
     core.setFailed(`⚠️ RegressionBot job completed with ${summary.errorCount} errors.`);
   } else {
@@ -227,14 +230,20 @@ function parseFailOn(raw: string): FailOn {
   throw new Error(`fail-on must be 'any' or 'unintended', got '${raw}'.`);
 }
 
-/**
- * Whether one regression fails the build under fail-on: unintended. No verdict always
- * blocks: nothing judged it, and treating unjudged as wanted would turn a missing
- * verdict into a silent pass. Same rule as the SDK CLI.
- */
-function isBlocking(r: PageResult): boolean {
+/** Whether a reviewer has to look at this page: judged a bug or needs review, or never judged. */
+function needsEyes(r: PageResult): boolean {
   if (!r.verdict) return true;
   return r.verdict.decision === 'bug' || r.verdict.decision === 'needs_review';
+}
+
+/** The verdict's one-line rationale, and for an intentional page the intent words it cites. */
+function verdictWhy(r: PageResult): string {
+  const v = r.verdict;
+  if (!v) return '';
+  const parts: string[] = [];
+  if (v.reasoning) parts.push(v.reasoning);
+  if (v.decision === 'intentional' && v.coveredBy) parts.push(`covered by: "${v.coveredBy}"`);
+  return parts.join(' — ');
 }
 
 const VERDICT_ICON: Record<string, string> = {
@@ -248,7 +257,7 @@ function verdictLabel(r: PageResult): string {
 
 /** Bugs and needs-review first, so a reviewer sees what matters before what was expected. */
 function sortByVerdict(regressions: PageResult[]): PageResult[] {
-  return [...regressions].sort((a, b) => Number(isBlocking(b)) - Number(isBlocking(a)));
+  return [...regressions].sort((a, b) => Number(needsEyes(b)) - Number(needsEyes(a)));
 }
 
 /** What the user typed in the workflow. Always sent, regardless of send-pr-context. */
@@ -363,6 +372,7 @@ function printConsoleSummary(summary: JobSummary) {
     sortByVerdict(summary.regressions).forEach((r: any) => {
       core.info(`- ${getUrlPath(r.url)} [${r.variantName}] (Score: ${r.visualMatchScore.toFixed(2)})`);
       if (r.verdict) core.info(`  Verdict: ${verdictLabel(r)}`);
+      if (verdictWhy(r)) core.info(`  Why: ${verdictWhy(r)}`);
       core.info(`  Diff Image: ${r.diffUrl}`);
       if (r.regressionbotSummary && Array.isArray(r.regressionbotSummary)) {
         core.info(`  RegressionBot Summary:`);
@@ -445,13 +455,13 @@ ${intentMarkdown(summary)}
         markdown += ` - [View Diff Image](${r.diffUrl})`;
       }
       markdown += '\n';
+      if (verdictWhy(r)) markdown += `  - _${verdictWhy(r)}_\n`;
 
       if (r.regressionbotSummary && Array.isArray(r.regressionbotSummary)) {
         markdown += `  - **RegressionBot Summary:**\n`;
         r.regressionbotSummary.forEach((item: any) => {
           const prefix = item.label ? `**${item.label}**: ` : '';
-          const why = item.verdict ? ` _(${item.verdict.decision}: ${item.verdict.reasoning})_` : '';
-          markdown += `    - ${prefix}${item.text}${why}\n`;
+          markdown += `    - ${prefix}${item.text}\n`;
         });
       } else if (r.regressionbotSummary) {
         markdown += `  - **RegressionBot Summary:**\n`;
