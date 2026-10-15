@@ -134,4 +134,37 @@ function hugeRun() {
   return base({ totalUrls: 400, regressionCount: 400, regressions, runSummary: 'Every blog post gained a sidebar link and had its body copy rewritten.' });
 }
 
-module.exports = { sidebarRun, nullSummaryRun, errorsOnlyRun, noChangeRun, hugeRun };
+// The same run judged against its PR: one bug, one page to review, two noise, the rest intended.
+function verdictRun() {
+  const run = sidebarRun();
+  const verdict = (decision, extra = {}) => ({ decision, minConfidence: 0.9, avgConfidence: 0.9, regions: {}, basis: 'measured', ...extra });
+  run.regressions.forEach((r, i) => {
+    const path = new URL(r.url).pathname;
+    if (path === '/docs/api/') {
+      r.verdict = verdict('bug', { reasoning: 'The PR only adds a sidebar link; it does not mention the API playground, and its link now points at a different project.' });
+    } else if (path === '/docs/status/') {
+      r.verdict = verdict('needs_review', { reasoning: 'The heading rename may be intended, but the PR only names the sidebar.' });
+    } else if (i >= 29) {
+      r.verdict = verdict('noise', { reasoning: 'Only the sidebar shifted by a pixel.' });
+    } else {
+      r.verdict = verdict('intentional', { coveredBy: 'add the status page to the docs sidebar', reasoning: 'The PR adds this link.' });
+    }
+  });
+  run.runContext = { prTitle: 'Add a status page to the docs nav', prDescription: 'add the status page to the docs sidebar' };
+  run.intentAssessment = {
+    decision: 'fail', intentProvided: true, bugCount: 1, intentionalCount: 27, noiseCount: 2, needsReviewCount: 1,
+    allAccountedFor: false, summary: '1 page contradicts the PR and 1 needs review; 27 match it.',
+  };
+  return run;
+}
+
+// The run carried a PR, but summaries were skipped, so nothing was judged.
+function unjudgedRun() {
+  const run = sidebarRun();
+  run.summaryStatus = 'PENDING';
+  run.runSummary = null;
+  run.intentAssessment = { ...run.intentAssessment, intentProvided: true, decision: 'review' };
+  return run;
+}
+
+module.exports = { sidebarRun, nullSummaryRun, errorsOnlyRun, noChangeRun, hugeRun, verdictRun, unjudgedRun };
