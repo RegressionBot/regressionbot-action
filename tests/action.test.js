@@ -75,7 +75,7 @@ global.fetch = async (url, options) => {
       prTitle: 'Add a status page to the docs nav',
       prDescription: 'Adds a sidebar link.',
       gitCommitSha: 'abc123',
-      gitCommitMessage: 'Add Quick Check to the sidebar',
+      gitCommitMessage: 'Add a status page link to the sidebar',
       scope: ['src/nav.ts', 'docs/sidebar.json'],
     }, 'Should send the PR as the run context');
     return {
@@ -234,7 +234,7 @@ function runCommentTests() {
   assert.ok(judgedTop.indexOf('**1 page looks like a bug**') < judgedTop.indexOf('**1 page needs review**'), 'Bugs come before reviews');
   assert.ok(judgedTop.includes('  - Why: The PR only adds a sidebar link'), 'A flagged page says why');
   assert.ok(judgedTop.includes('link pid=920 → pid=921'), 'A flagged page shows its own edits');
-  assert.ok(!/- `\/docs\/api\/`\n  - added “Quick Check/.test(judgedTop), 'The edit every page shares is not repeated under a flagged page');
+  assert.ok(!/- `\/docs\/api\/`\n  - added “Status page/.test(judgedTop), 'The edit every page shares is not repeated under a flagged page');
   assert.ok(judgedTop.includes('**27 pages match the PR:** “add the status page to the docs sidebar”'), 'Intended pages fold into the words that cover them');
   assert.ok(judgedTop.includes('**2 pages look like noise:** `/docs/troubleshooting/`, `/docs/changelog/`'), 'Noise is one line');
   assert.ok(!judgedTop.includes('gained or lost content'), 'Change groups give way to verdicts');
@@ -270,7 +270,7 @@ async function runTest() {
     }
     if (req.method === 'GET' && req.url === '/repos/test-owner/test-repo/commits/abc123') {
       res.statusCode = 200;
-      res.end(JSON.stringify({ sha: 'abc123', commit: { message: 'Add Quick Check to the sidebar\n\nLonger body.' } }));
+      res.end(JSON.stringify({ sha: 'abc123', commit: { message: 'Add a status page link to the sidebar\n\nLonger body.' } }));
       return;
     }
     if (req.method === 'GET' && req.url === '/repos/test-owner/test-repo/issues/123/comments') {
