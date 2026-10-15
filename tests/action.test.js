@@ -162,22 +162,22 @@ function runCommentTests() {
   const count = (text, needle) => text.split(needle).length - 1;
 
   // 31 pages that share one sidebar edit, two of them with edits of their own.
-  const sidebar = renderComment('job-277', fixtures.sidebarRun());
+  const sidebar = renderComment('job-123', fixtures.sidebarRun());
   const top = visible(sidebar);
   assert.ok(sidebar.startsWith(COMMENT_HEADING), 'Comment keeps the marker postOrUpdateComment looks for');
-  assert.ok(top.includes('**31 pages changed** · [Review the run →](https://regressionbot.com/admin/jobs?id=job-277)'), 'Headline counts pages and links the run');
+  assert.ok(top.includes('**31 pages changed** · [Review the run →](https://regressionbot.com/admin/jobs?id=job-123)'), 'Headline counts pages and links the run');
   assert.ok(top.includes('Every docs page gained'), 'runSummary is the summary paragraph');
   assert.ok(top.includes('**31 pages gained or lost content**'), 'Group heading names the group');
-  assert.strictEqual(count(top, 'Quick Check (Low Fidelity)”'), 2, 'Shared edit is said once (plus the heading rename on its own page)');
-  assert.ok(top.includes('- On 31 of 31 pages: added “Quick Check (Low Fidelity)”'), 'Shared edit carries its page count');
-  assert.ok(top.includes('`/docs/api/`') && top.includes('`/docs/quick-check/`'), 'Pages with their own edits are listed');
+  assert.strictEqual(count(top, 'Status page”'), 2, 'Shared edit is said once (plus the heading rename on its own page)');
+  assert.ok(top.includes('- On 31 of 31 pages: added “Status page”'), 'Shared edit carries its page count');
+  assert.ok(top.includes('`/docs/api/`') && top.includes('`/docs/status/`'), 'Pages with their own edits are listed');
   assert.ok(!top.includes('`/docs/faq/`'), 'Pages with only the shared edit are not listed');
   assert.ok(top.includes('link pid=920 → pid=921'), 'href change shows only the query values that differ');
-  assert.ok(top.includes('“…"PROCESSING","progress":{"total"…” → “…"PROCESSING","summaryStatus":"PENDING"…”'), 'Text edit is quoted from where the sides diverge');
+  assert.ok(top.includes('“…"PROCESSING","items":{"total"…” → “…"PROCESSING","estimatedDelivery":"2026…”'), 'Text edit is quoted from where the sides diverge');
   assert.ok(top.split('\n').length < 40, `Comment outside <details> is under 40 lines (was ${top.split('\n').length})`);
   assert.ok(!/Stability Score|Score:|\| Metric/.test(sidebar), 'Pixel scores and the metrics table are gone');
   assert.ok(!/https?:\/\/preview\.example\.com/.test(sidebar), 'No whole page URLs');
-  assert.ok(!/\{"jobId"/.test(sidebar.split('<details>')[1].replace(/“[^”]*”/g, '')), 'No JSON blobs in the per-page summaries');
+  assert.ok(!/\{"orderId"/.test(sidebar.split('<details>')[1].replace(/“[^”]*”/g, '')), 'No JSON blobs in the per-page summaries');
   for (const line of top.split('\n').filter(l => l.startsWith('-') || l.startsWith(' '))) {
     assert.ok(line.length <= 120, `Edit line too long: ${line}`);
   }
