@@ -41,7 +41,7 @@ const githubEventFile = path.join(tempOutputDir, 'github_event.json');
 fs.writeFileSync(githubOutputFile, '');
 fs.writeFileSync(githubSummaryFile, '');
 fs.writeFileSync(githubEventFile, JSON.stringify({
-  pull_request: { number: 123 }
+  pull_request: { number: 123, title: 'Add Quick Check to the docs nav', body: 'Adds a sidebar link.', head: { sha: 'abc123' } }
 }));
 
 process.env.GITHUB_OUTPUT = githubOutputFile;
@@ -50,6 +50,9 @@ process.env.GITHUB_EVENT_PATH = githubEventFile;
 process.env.GITHUB_REPOSITORY = 'test-owner/test-repo';
 process.env.GITHUB_EVENT_NAME = 'pull_request';
 process.env['INPUT_GITHUB-TOKEN'] = 'mock-github-token';
+
+// Set to replace the summary the mock API returns.
+let summaryOverride = null;
 
 // Mock global.fetch
 const originalFetch = global.fetch;
@@ -68,6 +71,13 @@ global.fetch = async (url, options) => {
     assert.strictEqual(body.project, 'test-project');
     assert.strictEqual(body.testOrigin, 'https://preview.example.com');
     assert.deepStrictEqual(body.devices, ['Desktop Chrome', 'iPhone 13']);
+    assert.deepStrictEqual(body.runContext, {
+      prTitle: 'Add Quick Check to the docs nav',
+      prDescription: 'Adds a sidebar link.',
+      gitCommitSha: 'abc123',
+      gitCommitMessage: 'Add Quick Check to the sidebar',
+      scope: ['src/nav.ts', 'docs/sidebar.json'],
+    }, 'Should send the PR as the run context');
     return {
       ok: true,
       json: async () => ({ jobId: 'job-xyz-987' })
@@ -98,7 +108,7 @@ global.fetch = async (url, options) => {
   if (parsedUrl.pathname === '/job/job-xyz-987/summary') {
     return {
       ok: true,
-      json: async () => ({
+      json: async () => summaryOverride || ({
         jobId: 'job-xyz-987',
         status: 'COMPLETED',
         overallScore: 90,
@@ -216,6 +226,28 @@ function runCommentTests() {
   assert.ok(/\n<\/details>\n$/.test(huge), 'Fold is still closed after truncation');
   assert.ok(visible(huge).includes('**400 pages changed**'), 'Headline still counts every page');
   console.log('✅ Size limit verified.');
+
+  // Judged against the PR: bugs and reviews lead, intended pages fold into one line.
+  const judged = renderComment('job-277', fixtures.verdictRun());
+  const judgedTop = visible(judged);
+  assert.ok(judgedTop.includes('**31 pages changed · 1 looks like a bug · 1 needs review** · [Review the run →]'), 'Headline counts what needs a person');
+  assert.ok(judgedTop.indexOf('**1 page looks like a bug**') < judgedTop.indexOf('**1 page needs review**'), 'Bugs come before reviews');
+  assert.ok(judgedTop.includes('  - Why: The PR only adds a sidebar link'), 'A flagged page says why');
+  assert.ok(judgedTop.includes('link pid=920 → pid=921'), 'A flagged page shows its own edits');
+  assert.ok(!/- `\/docs\/api\/`\n  - added “Quick Check/.test(judgedTop), 'The edit every page shares is not repeated under a flagged page');
+  assert.ok(judgedTop.includes('**27 pages match the PR:** “add Quick Check (Low Fidelity) to the docs sidebar”'), 'Intended pages fold into the words that cover them');
+  assert.ok(judgedTop.includes('**2 pages look like noise:** `/docs/troubleshooting/`, `/docs/changelog/`'), 'Noise is one line');
+  assert.ok(!judgedTop.includes('gained or lost content'), 'Change groups give way to verdicts');
+  assert.ok(judgedTop.split('\n').length < 30, `Judged comment is short (was ${judgedTop.split('\n').length} lines)`);
+  assert.ok(judged.includes('- `/docs/api/` · looks like a bug · [diff]('), 'The fold tags each page with its verdict');
+  console.log('✅ Verdict comment verified.');
+
+  // The run carried a PR but nothing was judged: the digest, plus one line saying so.
+  const unjudged = visible(renderComment('job-277', fixtures.unjudgedRun()));
+  assert.ok(unjudged.includes('**31 pages gained or lost content**'), 'Falls back to change groups');
+  assert.ok(unjudged.includes('Not judged against the intent on this run'), 'Says the run was not judged');
+  assert.ok(!/waiting|in progress|summar(y|ies) (is|are) pending/i.test(unjudged), 'Never a pending placeholder');
+  console.log('✅ Unjudged comment verified.');
 }
 
 async function runTest() {
@@ -231,6 +263,16 @@ async function runTest() {
 
   const server = http.createServer((req, res) => {
     res.setHeader('Content-Type', 'application/json');
+    if (req.method === 'GET' && req.url.startsWith('/repos/test-owner/test-repo/pulls/123/files')) {
+      res.statusCode = 200;
+      res.end(JSON.stringify([{ filename: 'src/nav.ts' }, { filename: 'docs/sidebar.json' }]));
+      return;
+    }
+    if (req.method === 'GET' && req.url === '/repos/test-owner/test-repo/commits/abc123') {
+      res.statusCode = 200;
+      res.end(JSON.stringify({ sha: 'abc123', commit: { message: 'Add Quick Check to the sidebar\n\nLonger body.' } }));
+      return;
+    }
     if (req.method === 'GET' && req.url === '/repos/test-owner/test-repo/issues/123/comments') {
       res.statusCode = 200;
       res.end(JSON.stringify(mockGithubComments));
@@ -307,6 +349,7 @@ async function runTest() {
   process.env['INPUT_DEVICES'] = '';
   process.env['INPUT_AUTO-APPROVE'] = 'true';
   process.env['INPUT_GITHUB-TOKEN'] = '';
+  process.env['INPUT_SEND-PR-CONTEXT'] = 'false';
   fetchCalls.length = 0;
   delete require.cache[require.resolve('../dist/index.js')];
   require('../dist/index.js');
@@ -314,6 +357,34 @@ async function runTest() {
   assert.ok(fetchCalls.some(c => c.url.endsWith('/project/saved-proj/run')), 'Should run the saved project');
   assert.ok(!fetchCalls.some(c => c.url.endsWith('/crawl')), 'Should not call /crawl without test-origin');
   console.log('✅ Saved-project run verified successfully.');
+  assert.ok(process.exitCode !== 1, 'Nothing so far should have failed the action');
+
+  // fail-on: bug fails only when a verdict says bug.
+  async function runWith(failOn, intentAssessment) {
+    process.env['INPUT_FAIL-ON'] = failOn;
+    summaryOverride = { ...fixtures.verdictRun(), jobId: 'job-xyz-987', intentAssessment: { ...fixtures.verdictRun().intentAssessment, ...intentAssessment } };
+    process.exitCode = undefined;
+    fs.writeFileSync(githubOutputFile, '');
+    delete require.cache[require.resolve('../dist/index.js')];
+    require('../dist/index.js');
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    const failed = process.exitCode === 1;
+    process.exitCode = undefined;
+    return { failed, outputs: fs.readFileSync(githubOutputFile, 'utf8') };
+  }
+  let result = await runWith('bug', { decision: 'fail' });
+  assert.ok(result.failed, 'fail-on: bug fails when a page looks like a bug');
+  assert.ok(result.outputs.includes('decision') && result.outputs.includes('fail'), 'Should output the decision');
+  result = await runWith('bug', { decision: 'review', bugCount: 0 });
+  assert.ok(!result.failed, 'fail-on: bug passes when pages only need review');
+  result = await runWith('review', { decision: 'review', bugCount: 0 });
+  assert.ok(result.failed, 'fail-on: review fails when a page needs review');
+  result = await runWith('bug', { decision: 'not_judged', intentProvided: false });
+  assert.ok(result.failed, 'An unjudged run falls back to failing on any change');
+  result = await runWith('none', { decision: 'fail' });
+  assert.ok(!result.failed, 'fail-on: none never fails on changes');
+  summaryOverride = null;
+  console.log('✅ fail-on verified successfully.');
 
   // Cleanup
   server.close();

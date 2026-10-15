@@ -96,6 +96,24 @@ jobs:
           auto-approve: true
 ```
 
+### Judging changes against the PR
+
+With `github-token` set, the action sends the PR's title, description, commit message and changed file paths along with the run. RegressionBot judges each changed page against them as intended, a bug, or noise, and the PR comment leads with the pages that look like bugs or need review. Pages the PR explains fold into one line that quotes the words covering them.
+
+To fail the check only on what the verdicts flag, rather than on every change:
+
+```yaml
+      - uses: RegressionBot/regressionbot-action@v0
+        with:
+          api-key: ${{ secrets.REGRESSIONBOT_API_KEY }}
+          project: 'my-site'
+          test-origin: ${{ steps.deploy.outputs.preview-url }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          fail-on: review   # or: bug
+```
+
+Verdicts arrive with the summaries, so they need `skip-summaries: false` (the default). Set `send-pr-context: false` to keep PR text out of RegressionBot. Runs with no PR, such as deploys and schedules, can say what they intend with `change-description` and `expected-changes`.
+
 ### Managed mode vs. live-vs-live
 
 - **Live-vs-live** (`base-origin` set): both URLs are captured and compared on every run. Nothing is stored, so any inputs go. Use this for preview-vs-production.
@@ -236,7 +254,11 @@ jobs:
 | `skip-summaries` | Skip waiting for RegressionBot regression summaries (`true`/`false`). | No | `false` |
 | `job-id` | The Job ID (required only for `approve` or `status` commands). | No | N/A |
 | `fail-on-regression` | Fail the GitHub Action workflow if regressions are found (`true`/`false`). | No | `true` |
+| `fail-on` | What fails the workflow: `change`, `review` (a bug or a page needing review), `bug`, or `none`. `review` and `bug` need verdicts; an unjudged run fails on any change. | No | From `fail-on-regression` |
 | `fail-on-error` | Fail the GitHub Action workflow if execution errors occur (`true`/`false`). | No | `true` |
+| `send-pr-context` | Send the PR title, description, commit message and changed file paths so RegressionBot can judge each change (`true`/`false`). | No | `true` |
+| `change-description` | What this run is meant to change, for runs with no PR. | No | N/A |
+| `expected-changes` | Visual changes this run is expected to make, one per line. | No | N/A |
 | `github-token` | GitHub token (`${{ secrets.GITHUB_TOKEN }}`) to automatically post/update a PR comment with test results. | No | N/A |
 | `pr-number` | Explicit PR number to comment on (auto-detected if omitted on PR/issue events). | No | N/A |
 
@@ -250,6 +272,7 @@ jobs:
 | `regression-count` | The number of page regressions detected. |
 | `error-count` | The number of pages that failed to crawl/test. |
 | `summary` | The full Markdown summary detailing the run results. |
+| `decision` | How the changes measure against the PR: `pass`, `review`, `fail`, or `not_judged`. |
 
 ## Security & Permissions
 

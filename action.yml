@@ -52,9 +52,22 @@ inputs:
     description: 'The Job ID (required for approve or status command)'
     required: false
   fail-on-regression:
-    description: 'Fail the action build if regressions are found (true/false)'
+    description: 'Fail the action build if regressions are found (true/false). Ignored when fail-on is set.'
     required: false
     default: 'true'
+  fail-on:
+    description: 'What fails the build: "change" (any changed page), "review" (a page judged a bug or needing review), "bug" (a page judged a bug) or "none". "review" and "bug" need verdicts; a run that was not judged fails on any change. Default: from fail-on-regression.'
+    required: false
+  send-pr-context:
+    description: 'Send the PR title, description, commit message and changed file paths to RegressionBot so it can judge each change as intended, a bug or noise (true/false)'
+    required: false
+    default: 'true'
+  change-description:
+    description: 'What this run is meant to change, for runs with no PR (deploys, schedules). Sent with the PR context when both exist.'
+    required: false
+  expected-changes:
+    description: 'Visual changes this run is expected to make, one per line'
+    required: false
   fail-on-error:
     description: 'Fail the action build if errors are encountered (true/false)'
     required: false
@@ -79,6 +92,8 @@ outputs:
     description: 'The number of errors encountered'
   summary:
     description: 'A markdown summary of the job run'
+  decision:
+    description: 'How the changes measure against the PR: pass, review, fail, or not_judged when the run had no intent to judge against'
 
 runs:
   using: 'node20'
