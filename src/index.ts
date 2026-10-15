@@ -1,6 +1,7 @@
 import * as core from '@actions/core';
 import * as github from '@actions/github';
 import { RegressionBot, JobStatus, JobSummary } from '@regressionbot/sdk';
+import { renderComment, COMMENT_HEADING, FAILURE_HEADING } from './comment';
 
 async function run() {
   try {
@@ -26,7 +27,7 @@ async function run() {
         const { owner, repo } = github.context.repo;
         const prNumber = await resolvePrNumber(octokit, owner, repo);
         if (prNumber) {
-          const failureMarkdown = `### ⚠️ RegressionBot Visual Check Failed\n\n${error.message}\n\nCheck the Actions log for details.`;
+          const failureMarkdown = `${FAILURE_HEADING}\n\n${error.message}\n\nCheck the Actions log for details.`;
           await postOrUpdateComment(octokit, owner, repo, prNumber, failureMarkdown);
         }
       } catch (commentError: any) {
@@ -265,84 +266,9 @@ function printConsoleSummary(summary: JobSummary) {
   core.endGroup();
 }
 
+// The same markdown goes to the PR comment, the job summary and the `summary` output.
 async function generateJobSummary(jobId: string, summary: JobSummary): Promise<string> {
-  let markdown = `### 🚀 RegressionBot Visual Test Results
-
-**Job ID:** \`${jobId}\`
-**Status:** \`${summary.status}\`
-**Stability Score:** \`${summary.overallScore}/100\` (${getStabilityLabel(summary.overallScore)})
-
-#### Summary Metrics
-| Metric | Value |
-| --- | --- |
-| **Total URLs Tested** | ${summary.totalUrls} |
-| **Matches** | ${summary.matchCount} |
-| **Regressions** | ${summary.regressionCount} |
-| **New Baselines** | ${summary.newBaselineCount} |
-| **Errors** | ${summary.errorCount} |
-`;
-
-  if (summary.newBaselines && summary.newBaselines.length > 0) {
-    markdown += `\n#### ✨ New Baselines Created\n`;
-    summary.newBaselines.forEach((nb: any) => {
-      let urlPath = nb.url;
-      try {
-        urlPath = new URL(nb.url).pathname;
-      } catch (e) {
-        // Ignored
-      }
-      markdown += `- \`${urlPath}\` [${nb.variantName}]\n`;
-    });
-  }
-
-  if (summary.regressions && summary.regressions.length > 0) {
-    markdown += `\n#### ❌ Regressions Detected\n`;
-    summary.regressions.forEach((r: any) => {
-      let urlPath = r.url;
-      try {
-        urlPath = new URL(r.url).pathname;
-      } catch (e) {
-        // Ignored
-      }
-      
-      markdown += `- **${urlPath}** [${r.variantName}] (Score: **${r.visualMatchScore.toFixed(2)}**)`;
-      if (r.diffUrl) {
-        markdown += ` - [View Diff Image](${r.diffUrl})`;
-      }
-      markdown += '\n';
-
-      if (r.regressionbotSummary && Array.isArray(r.regressionbotSummary)) {
-        markdown += `  - **RegressionBot Summary:**\n`;
-        r.regressionbotSummary.forEach((item: any) => {
-          const prefix = item.label ? `**${item.label}**: ` : '';
-          markdown += `    - ${prefix}${item.text}\n`;
-        });
-      } else if (r.regressionbotSummary) {
-        markdown += `  - **RegressionBot Summary:**\n`;
-        if (typeof r.regressionbotSummary === 'string') {
-          r.regressionbotSummary.split('\n').forEach((line: string) => {
-            markdown += `    ${line}\n`;
-          });
-        } else {
-          markdown += `    ${JSON.stringify(r.regressionbotSummary)}\n`;
-        }
-      }
-    });
-  }
-
-  if (summary.errors && summary.errors.length > 0) {
-    markdown += `\n#### ⚠️ Errors Encountered\n`;
-    summary.errors.forEach((e: any) => {
-      let urlPath = e.url;
-      try {
-        urlPath = new URL(e.url).pathname;
-      } catch (err) {
-        // Ignored
-      }
-      markdown += `- **${urlPath}**: ${e.errorMessage}\n`;
-    });
-  }
-
+  const markdown = renderComment(jobId, summary);
   core.setOutput('summary', markdown);
   await core.summary.addRaw(markdown).write();
   return markdown;
@@ -422,8 +348,7 @@ async function postOrUpdateComment(octokit: any, owner: string, repo: string, pr
     });
 
     const botComment = comments.find((c: any) =>
-      c.body.includes('### 🚀 RegressionBot Visual Test Results') ||
-      c.body.includes('### ⚠️ RegressionBot Visual Check Failed')
+      c.body.includes(COMMENT_HEADING) || c.body.includes(FAILURE_HEADING)
     );
 
     if (botComment) {

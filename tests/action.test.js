@@ -136,8 +136,91 @@ global.fetch = async (url, options) => {
 };
 
 const http = require('http');
+const fixtures = require('./fixtures');
+
+// The comment renderer is pure, so test it straight from source rather than through the bundle.
+function loadRenderer() {
+  const outfile = path.join(tempOutputDir, 'comment.js');
+  require('esbuild').buildSync({
+    entryPoints: [path.join(__dirname, '../src/comment.ts')],
+    bundle: true,
+    platform: 'node',
+    format: 'cjs',
+    outfile,
+    logLevel: 'warning',
+  });
+  return require(outfile);
+}
+
+// Everything a reader sees without opening the fold.
+function visible(markdown) {
+  return markdown.split('<details>')[0].trim();
+}
+
+function runCommentTests() {
+  const { renderComment, MAX_COMMENT_LENGTH, COMMENT_HEADING } = loadRenderer();
+  const count = (text, needle) => text.split(needle).length - 1;
+
+  // 31 pages that share one sidebar edit, two of them with edits of their own.
+  const sidebar = renderComment('job-123', fixtures.sidebarRun());
+  const top = visible(sidebar);
+  assert.ok(sidebar.startsWith(COMMENT_HEADING), 'Comment keeps the marker postOrUpdateComment looks for');
+  assert.ok(top.includes('**31 pages changed** · [Review the run →](https://regressionbot.com/admin/jobs?id=job-123)'), 'Headline counts pages and links the run');
+  assert.ok(top.includes('Every docs page gained'), 'runSummary is the summary paragraph');
+  assert.ok(top.includes('**31 pages gained or lost content**'), 'Group heading names the group');
+  assert.strictEqual(count(top, 'Status page”'), 2, 'Shared edit is said once (plus the heading rename on its own page)');
+  assert.ok(top.includes('- On 31 of 31 pages: added “Status page”'), 'Shared edit carries its page count');
+  assert.ok(top.includes('`/docs/api/`') && top.includes('`/docs/status/`'), 'Pages with their own edits are listed');
+  assert.ok(!top.includes('`/docs/faq/`'), 'Pages with only the shared edit are not listed');
+  assert.ok(top.includes('link pid=920 → pid=921'), 'href change shows only the query values that differ');
+  assert.ok(top.includes('“…"PROCESSING","items":{"total"…” → “…"PROCESSING","estimatedDelivery":"2026…”'), 'Text edit is quoted from where the sides diverge');
+  assert.ok(top.split('\n').length < 40, `Comment outside <details> is under 40 lines (was ${top.split('\n').length})`);
+  assert.ok(!/Stability Score|Score:|\| Metric/.test(sidebar), 'Pixel scores and the metrics table are gone');
+  assert.ok(!/https?:\/\/preview\.example\.com/.test(sidebar), 'No whole page URLs');
+  assert.ok(!/\{"orderId"/.test(sidebar.split('<details>')[1].replace(/“[^”]*”/g, '')), 'No JSON blobs in the per-page summaries');
+  for (const line of top.split('\n').filter(l => l.startsWith('-') || l.startsWith(' '))) {
+    assert.ok(line.length <= 120, `Edit line too long: ${line}`);
+  }
+  assert.ok(sidebar.includes('<details><summary>All 31 changed pages</summary>'), 'Every page is folded into <details>');
+  assert.strictEqual(count(sidebar, '[diff]('), 31, 'Every page keeps its diff link');
+  assert.ok(/\n<\/details>\n$/.test(sidebar), 'Fold is closed');
+  assert.ok(!/<(?!\/?(details|summary)>)[a-z]/i.test(sidebar), 'No HTML other than <details>/<summary>');
+  console.log('✅ Shared-edit comment verified.');
+
+  // No runSummary: one line naming the largest group stands in for it.
+  const fallback = visible(renderComment('job-1', fixtures.nullSummaryRun()));
+  assert.ok(fallback.includes('Most of the changes: 2 pages changed only in appearance.'), 'Fallback names the largest group');
+  assert.ok(fallback.indexOf('**1 page edited its wording**') < fallback.indexOf('**2 pages changed only in appearance**'), 'Groups follow the fixed order');
+  assert.ok(fallback.includes('button “Contact us” restyled: background-color rgb(0, 0, 0) → rgb(20, 20, 200)'), 'Style edits name the element and the property');
+  console.log('✅ runSummary fallback verified.');
+
+  // Errors only: shown, capped at five, never folded.
+  const errorsOnly = renderComment('job-2', fixtures.errorsOnlyRun());
+  assert.ok(errorsOnly.includes('**7 errors** · [Review the run →]'), 'Headline omits zero counts');
+  assert.ok(!errorsOnly.includes('changed'), 'No changed-pages count when none changed');
+  assert.ok(errorsOnly.includes('- `/broken-1/`: Navigation timeout of 30000 ms exceeded'), 'Error line has path and message');
+  assert.strictEqual(count(errorsOnly, '- `/broken-'), 5, 'At most five errors are listed');
+  assert.ok(errorsOnly.includes('- and 2 more'), 'The rest are counted');
+  assert.ok(!errorsOnly.includes('<details>'), 'Errors are never folded');
+  console.log('✅ Errors-only comment verified.');
+
+  // Nothing changed: one line.
+  const none = renderComment('job-3', fixtures.noChangeRun());
+  assert.strictEqual(none, `${COMMENT_HEADING}\n\nNo pages changed (42 checked)\n`, 'No-change comment is a single line under the marker');
+  console.log('✅ No-change comment verified.');
+
+  // A run too big for one comment: the fold is cut, and says so.
+  const huge = renderComment('job-4', fixtures.hugeRun());
+  assert.ok(huge.length <= MAX_COMMENT_LENGTH, `Comment fits GitHub's limit (was ${huge.length})`);
+  assert.ok(/…and \d+ more pages, \[see the run\]\(https:\/\/regressionbot\.com\/admin\/jobs\?id=job-4\)/.test(huge), 'Truncation is stated with a link to the run');
+  assert.ok(/\n<\/details>\n$/.test(huge), 'Fold is still closed after truncation');
+  assert.ok(visible(huge).includes('**400 pages changed**'), 'Headline still counts every page');
+  console.log('✅ Size limit verified.');
+}
 
 async function runTest() {
+  runCommentTests();
+
   console.log('Running GitHub Action Integration Test...');
 
   // Start a local HTTP server to mock GitHub REST API
@@ -158,7 +241,7 @@ async function runTest() {
       req.on('data', chunk => { body += chunk; });
       req.on('end', () => {
         const parsed = JSON.parse(body);
-        assert.ok(parsed.body.includes('**RegressionBot Summary:**'));
+        assert.ok(parsed.body.includes('**1 page changed** · [Review the run →](https://regressionbot.com/admin/jobs?id=job-xyz-987)'));
         githubCommentUpdated = true;
         res.statusCode = 200;
         res.end(JSON.stringify({ id: 456 }));
@@ -202,12 +285,16 @@ async function runTest() {
   // Verify step summary contents
   const summaryContent = fs.readFileSync(githubSummaryFile, 'utf8');
   console.log('Generated summary:\n' + summaryContent);
+  // This summary predates changeGroup, changes and runSummary (and summaries were skipped):
+  // the comment must still render from what is there, with no "pending" placeholder.
   assert.ok(summaryContent.includes('### 🚀 RegressionBot Visual Test Results'), 'Should contain title');
-  assert.ok(summaryContent.includes('Job ID:** `job-xyz-987`'), 'Should contain Job ID');
-  assert.ok(summaryContent.includes('Stability Score:** `90/100`'), 'Should contain Stability Score');
-  assert.ok(summaryContent.includes('**RegressionBot Summary:**'), 'Should contain bold summary header');
-  assert.ok(summaryContent.includes('**Header**: Increased font size.'), 'Should contain labeled list item');
-  assert.ok(summaryContent.includes('- Button color changed.'), 'Should contain list item without label');
+  assert.ok(summaryContent.includes('**1 page changed**'), 'Should contain the headline');
+  assert.ok(summaryContent.includes('**1 page changed visually, with no text diff**'), 'Should group a page with no edits as unmeasured');
+  assert.ok(summaryContent.includes('  - Increased font size.'), 'Should fall back to the RegressionBot summary text');
+  assert.ok(summaryContent.includes('  - Header: Increased font size.'), 'Should keep the labelled summary in the fold');
+  assert.ok(!/pending|waiting/i.test(summaryContent), 'Should never show a pending placeholder');
+  assert.ok(!summaryContent.includes('Stability Score'), 'Should not show the stability score');
+  assert.ok(outputContent.includes('**1 page changed**'), 'Should set the same markdown as the summary output');
   console.log('✅ GitHub Step Summary verified successfully.');
 
   // Verify GitHub PR comment was updated
