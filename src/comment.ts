@@ -107,7 +107,7 @@ const CONTEXT = 12;
 
 /**
  * Drop what both sides share so the quote lands on what changed, the way the API clips a
- * long passage: “…"PROCESSING","progress"…” → “…"PROCESSING","summaryStatus":"PENDING"…”.
+ * long passage: “…"PROCESSING","items"…” → “…"PROCESSING","estimatedDelivery":"2026-11-02"…”.
  */
 function edit(before: string, after: string, limit: number): string {
   let start = 0;

@@ -3,21 +3,21 @@
 const ORIGIN = 'https://preview.example.com';
 
 const DOC_PATHS = [
-  '/docs/', '/docs/api/', '/docs/quick-check/', '/docs/getting-started/', '/docs/projects/',
-  '/docs/devices/', '/docs/masks/', '/docs/baselines/', '/docs/approvals/', '/docs/github-action/',
-  '/docs/sdk/', '/docs/cli/', '/docs/scheduling/', '/docs/notifications/', '/docs/webhooks/',
-  '/docs/sitemaps/', '/docs/scans/', '/docs/exclusions/', '/docs/concurrency/', '/docs/verdicts/',
-  '/docs/run-context/', '/docs/changes/', '/docs/metadata/', '/docs/fonts/', '/docs/auth/',
-  '/docs/teams/', '/docs/billing/', '/docs/limits/', '/docs/faq/', '/docs/troubleshooting/',
+  '/docs/', '/docs/api/', '/docs/status/', '/docs/install/', '/docs/config/',
+  '/docs/accounts/', '/docs/orders/', '/docs/payments/', '/docs/refunds/', '/docs/shipping/',
+  '/docs/returns/', '/docs/inventory/', '/docs/catalog/', '/docs/search/', '/docs/webhooks/',
+  '/docs/events/', '/docs/errors/', '/docs/rate-limits/', '/docs/pagination/', '/docs/auth/',
+  '/docs/teams/', '/docs/billing/', '/docs/limits/', '/docs/sandbox/', '/docs/sdks/',
+  '/docs/migrations/', '/docs/security/', '/docs/privacy/', '/docs/faq/', '/docs/troubleshooting/',
   '/docs/changelog/',
 ];
 
-const SIDEBAR_INSERT = { type: 'insert', element: 'a', after: 'Quick Check (Low Fidelity)' };
+const SIDEBAR_INSERT = { type: 'insert', element: 'a', after: 'Status page' };
 const SIDEBAR_SHIFT = { type: 'reflow-displacement', element: 'ul' };
 
 function base(overrides) {
   return {
-    jobId: 'job-277',
+    jobId: 'job-123',
     status: 'COMPLETED',
     summaryStatus: 'COMPLETE',
     error: null,
@@ -52,36 +52,36 @@ function page(path, extra = {}) {
     changeGroup: 'structural',
     baselineUrl: null,
     currentUrl: null,
-    diffUrl: `https://regressionbot.com/inspect/job-277${path}`,
+    diffUrl: `https://regressionbot.com/inspect/job-123${path}`,
     changes: [SIDEBAR_INSERT, SIDEBAR_SHIFT],
-    regressionbotSummary: [{ label: 'A', text: 'The sidebar gained a "Quick Check (Low Fidelity)" link.' }],
+    regressionbotSummary: [{ label: 'A', text: 'The sidebar gained a "Status page" link.' }],
     ...extra,
   };
 }
 
-// The PR #277 run: every docs page gained one sidebar link; two pages also had their own edits.
+// A docs site where every page gained one sidebar link; two pages also had their own edits.
 function sidebarRun() {
   const regressions = DOC_PATHS.map(path => {
     if (path === '/docs/api/') {
       return page(path, {
         changes: [
           SIDEBAR_INSERT,
-          { type: 'text-edit', element: 'code', before: '{"jobId":"abc","status":"PROCESSING","progress":{"total":12,"completed":3}}', after: '{"jobId":"abc","status":"PROCESSING","summaryStatus":"PENDING","progress":{"total":12,"completed":3}}' },
+          { type: 'text-edit', element: 'code', before: '{"orderId":"abc","status":"PROCESSING","items":{"total":12,"shipped":3}}', after: '{"orderId":"abc","status":"PROCESSING","estimatedDelivery":"2026-11-02","items":{"total":12,"shipped":3}}' },
           { type: 'attribute-edit', element: 'a', label: 'Open in playground', attributes: { href: ['/playground?pid=920&tab=json', '/playground?pid=921&tab=json'] } },
-          { type: 'insert', element: 'p', after: 'summaryStatus tells you whether the RegressionBot summaries have been written yet; poll until it reads COMPLETE before reading them.' },
+          { type: 'insert', element: 'p', after: 'estimatedDelivery is set once the order ships; until then it is null, so check for it before showing a date.' },
           SIDEBAR_SHIFT,
         ],
         regressionbotSummary: 'ABCDEFGHIJK'.split('').map(label => ({
           label,
-          text: `Response example now reads {"jobId":"abc","status":"PROCESSING","summaryStatus":"PENDING","progress":{"total":12,"completed":3,"percent":"25"},"results":[{"url":"https://preview.example.com/docs/api/#${label}"}]}`,
+          text: `Response example now reads {"orderId":"abc","status":"PROCESSING","estimatedDelivery":"2026-11-02","items":{"total":12,"shipped":3,"percent":"25"},"results":[{"url":"https://preview.example.com/docs/api/#${label}"}]}`,
         })),
       });
     }
-    if (path === '/docs/quick-check/') {
+    if (path === '/docs/status/') {
       return page(path, {
         changes: [
           SIDEBAR_INSERT,
-          { type: 'text-edit', element: 'h1', before: 'Quick Check', after: 'Quick Check (Low Fidelity)' },
+          { type: 'text-edit', element: 'h1', before: 'Status', after: 'Status page' },
         ],
       });
     }
@@ -94,7 +94,7 @@ function sidebarRun() {
     regressionCount: regressions.length,
     matchCount: 120 - regressions.length,
     regressions,
-    runSummary: 'Every docs page gained a "Quick Check (Low Fidelity)" link in the sidebar. The API reference also documents the new summaryStatus field, and the Quick Check page renamed its heading to match.',
+    runSummary: 'Every docs page gained a "Status page" link in the sidebar. The API reference also documents a new estimatedDelivery field, and the Status page renamed its heading to match.',
   });
 }
 
@@ -142,15 +142,15 @@ function verdictRun() {
     const path = new URL(r.url).pathname;
     if (path === '/docs/api/') {
       r.verdict = verdict('bug', { reasoning: 'The PR only adds a sidebar link; it does not mention the API playground, and its link now points at a different project.' });
-    } else if (path === '/docs/quick-check/') {
+    } else if (path === '/docs/status/') {
       r.verdict = verdict('needs_review', { reasoning: 'The heading rename may be intended, but the PR only names the sidebar.' });
     } else if (i >= 29) {
       r.verdict = verdict('noise', { reasoning: 'Only the sidebar shifted by a pixel.' });
     } else {
-      r.verdict = verdict('intentional', { coveredBy: 'add Quick Check (Low Fidelity) to the docs sidebar', reasoning: 'The PR adds this link.' });
+      r.verdict = verdict('intentional', { coveredBy: 'add the status page to the docs sidebar', reasoning: 'The PR adds this link.' });
     }
   });
-  run.runContext = { prTitle: 'Add Quick Check to the docs nav', prDescription: 'add Quick Check (Low Fidelity) to the docs sidebar' };
+  run.runContext = { prTitle: 'Add a status page to the docs nav', prDescription: 'add the status page to the docs sidebar' };
   run.intentAssessment = {
     decision: 'fail', intentProvided: true, bugCount: 1, intentionalCount: 27, noiseCount: 2, needsReviewCount: 1,
     allAccountedFor: false, summary: '1 page contradicts the PR and 1 needs review; 27 match it.',
