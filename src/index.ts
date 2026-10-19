@@ -1,6 +1,6 @@
 import * as core from '@actions/core';
 import * as github from '@actions/github';
-import { RegressionBot, JobStatus, JobSummary } from '@regressionbot/sdk';
+import { RegressionBot, JobStatus, JobSummary, RunContext } from '@regressionbot/sdk';
 import { renderComment, COMMENT_HEADING, FAILURE_HEADING } from './comment';
 
 async function run() {
@@ -43,6 +43,7 @@ function csv(name: string): string[] {
 }
 
 async function handleCheck(sdk: RegressionBot) {
+  const failOn = parseFailOn();
   const testOrigin = core.getInput('test-origin');
   const projectName = core.getInput('project');
   const baseOrigin = core.getInput('base-origin');
@@ -75,6 +76,14 @@ async function handleCheck(sdk: RegressionBot) {
   if (!isNaN(concurrency)) core.info(`⚙️ Concurrency: ${concurrency}`);
   if (autoApprove) core.info('✨ Auto-approve baselines is enabled.');
 
+  // The PR is resolved before the run so its title and description can say what it intends.
+  const githubToken = core.getInput('github-token');
+  const octokit = githubToken ? github.getOctokit(githubToken) : undefined;
+  const { owner, repo } = github.context.repo;
+  const prNumber = octokit ? await resolvePrNumber(octokit, owner, repo) : undefined;
+  const runContext = await buildRunContext(octokit, owner, repo, prNumber);
+  if (runContext) core.info(`🧭 Judging changes against: ${runContext.prTitle || runContext.changeDescription || 'the commit'}`);
+
   let job;
   if (testOrigin) {
     core.info(`🚀 Initializing RegressionBot visual test for: ${testOrigin}`);
@@ -87,6 +96,7 @@ async function handleCheck(sdk: RegressionBot) {
     if (masks.length) builder.mask(masks);
     if (!isNaN(concurrency)) builder.concurrency(concurrency);
     if (autoApprove) builder.autoApprove(true);
+    if (runContext) builder.withContext(runContext);
     job = await builder.run();
   } else {
     core.info(`🚀 Running saved project: ${projectName}`);
@@ -98,6 +108,7 @@ async function handleCheck(sdk: RegressionBot) {
       masks: masks.length ? masks : undefined,
       concurrency: isNaN(concurrency) ? undefined : concurrency,
       autoApprove: autoApprove || undefined,
+      runContext,
     });
   }
 
@@ -142,15 +153,13 @@ async function handleCheck(sdk: RegressionBot) {
   core.setOutput('overall-score', summary.overallScore.toString());
   core.setOutput('regression-count', summary.regressionCount.toString());
   core.setOutput('error-count', summary.errorCount.toString());
+  const decision = summary.intentAssessment?.decision ?? 'not_judged';
+  core.setOutput('decision', decision);
 
   // Generate GitHub Job Summary Markdown
   const markdown = await generateJobSummary(job.jobId, summary);
 
-  const githubToken = core.getInput('github-token');
-  if (githubToken) {
-    const octokit = github.getOctokit(githubToken);
-    const { owner, repo } = github.context.repo;
-    const prNumber = await resolvePrNumber(octokit, owner, repo);
+  if (octokit) {
     if (prNumber) {
       await postOrUpdateComment(octokit, owner, repo, prNumber, markdown);
     } else {
@@ -162,16 +171,98 @@ async function handleCheck(sdk: RegressionBot) {
   printConsoleSummary(summary);
 
   // Decide if we need to fail the action build
-  const failOnRegression = core.getBooleanInput('fail-on-regression');
   const failOnError = core.getBooleanInput('fail-on-error');
+  const failure = verdictFailure(summary, decision, failOn);
 
-  if (summary.regressionCount > 0 && failOnRegression) {
-    core.setFailed(`❌ RegressionBot detected ${summary.regressionCount} regressions.`);
+  if (failure) {
+    core.setFailed(failure);
   } else if (summary.errorCount > 0 && failOnError) {
     core.setFailed(`⚠️ RegressionBot job completed with ${summary.errorCount} errors.`);
   } else {
     core.info('🎉 RegressionBot run finished successfully!');
   }
+}
+
+/**
+ * `fail-on` decides what fails the check: any change, or only what the verdicts flag. Unset,
+ * `fail-on-regression` keeps its old meaning. A run with no intent to judge against falls back
+ * to failing on any change, so a missing PR description never turns a failure into a pass.
+ */
+function parseFailOn(): string {
+  const failOn = core.getInput('fail-on').trim().toLowerCase();
+  if (!failOn) return core.getBooleanInput('fail-on-regression') ? 'change' : 'none';
+  if (!['change', 'review', 'bug', 'none'].includes(failOn)) {
+    throw new Error(`Unknown fail-on value "${failOn}". Use change, review, bug or none.`);
+  }
+  return failOn;
+}
+
+function verdictFailure(summary: JobSummary, decision: string, failOn: string): string | undefined {
+  if (failOn === 'none' || summary.regressionCount === 0) return undefined;
+
+  const ia = summary.intentAssessment;
+  if (failOn !== 'change' && decision === 'not_judged') {
+    core.warning(`fail-on: ${failOn} needs verdicts, and this run was not judged. Failing on any change instead.`);
+    failOn = 'change';
+  }
+  if (failOn === 'change') return `❌ RegressionBot detected ${summary.regressionCount} regressions.`;
+  if (decision === 'fail') return `❌ RegressionBot flagged ${ia.bugCount} page(s) that look like bugs.`;
+  if (failOn === 'review' && decision === 'review') {
+    return `⚠️ RegressionBot found ${ia.needsReviewCount || summary.regressionCount} page(s) that need review.`;
+  }
+  return undefined;
+}
+
+/**
+ * What this run is meant to change, so RegressionBot can judge each page as intended, a bug
+ * or noise. Taken from the PR and commit unless `send-pr-context` is false; the
+ * `change-description` and `expected-changes` inputs are always sent.
+ */
+async function buildRunContext(
+  octokit: any,
+  owner: string,
+  repo: string,
+  prNumber: number | undefined
+): Promise<RunContext | undefined> {
+  const ctx: RunContext = {};
+  const description = core.getInput('change-description').trim();
+  const expected = core.getMultilineInput('expected-changes').map(s => s.trim()).filter(Boolean);
+  if (description) ctx.changeDescription = description;
+  if (expected.length) ctx.expectedChanges = expected;
+
+  if (core.getInput('send-pr-context') !== 'false') {
+    const payload = github.context.payload;
+    let pr: any = payload.pull_request;
+    try {
+      if (!pr && octokit && prNumber) {
+        pr = (await octokit.rest.pulls.get({ owner, repo, pull_number: prNumber })).data;
+      }
+      if (pr) {
+        ctx.prTitle = pr.title;
+        if (pr.body) ctx.prDescription = String(pr.body).slice(0, 2000);
+        ctx.gitCommitSha = pr.head?.sha;
+      }
+      ctx.gitCommitSha = ctx.gitCommitSha || github.context.sha || undefined;
+      const message = payload.head_commit?.message;
+      if (message) {
+        ctx.gitCommitMessage = String(message).split('\n')[0];
+      } else if (octokit && ctx.gitCommitSha) {
+        const { data } = await octokit.rest.repos.getCommit({ owner, repo, ref: ctx.gitCommitSha });
+        ctx.gitCommitMessage = String(data.commit?.message ?? '').split('\n')[0] || undefined;
+      }
+      if (octokit && pr) {
+        const { data: files } = await octokit.rest.pulls.listFiles({ owner, repo, pull_number: pr.number, per_page: 100 });
+        const scope = files.map((f: any) => f.filename).slice(0, 50);
+        if (scope.length) ctx.scope = scope;
+      }
+    } catch (error: any) {
+      core.warning(`⚠️ Could not read the PR to judge changes against: ${error.message}`);
+    }
+  }
+
+  const keys = Object.keys(ctx).filter(k => (ctx as any)[k] !== undefined);
+  // A SHA alone says nothing about intent, so it is not worth a judgement.
+  return keys.some(k => k !== 'gitCommitSha') ? ctx : undefined;
 }
 
 async function handleApprove(sdk: RegressionBot) {

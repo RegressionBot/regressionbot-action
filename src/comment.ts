@@ -248,10 +248,8 @@ function groupOf(r: PageResult): Group {
   return 'unmeasured';
 }
 
-function renderGroup(group: Group, members: Page[]): string[] {
-  const n = members.length;
-  const out = [`**${pages(n)} ${GROUP_PHRASE[group](n)}**`];
-
+/** Edits on at least three pages and at least half of them, most common first. */
+function sharedEdits(members: Page[]): [string, { text: string; count: number }][] {
   const counts = new Map<string, { text: string; count: number }>();
   for (const p of members) {
     for (const l of p.lines) {
@@ -260,10 +258,16 @@ function renderGroup(group: Group, members: Page[]): string[] {
       counts.set(l.key, entry);
     }
   }
-  const shared = [...counts.entries()]
-    .filter(([, e]) => e.count >= 3 && e.count * 2 >= n)
-    .sort((a, b) => b[1].count - a[1].count)
-    .slice(0, SHARED_PER_GROUP);
+  return [...counts.entries()]
+    .filter(([, e]) => e.count >= 3 && e.count * 2 >= members.length)
+    .sort((a, b) => b[1].count - a[1].count);
+}
+
+function renderGroup(group: Group, members: Page[]): string[] {
+  const n = members.length;
+  const out = [`**${pages(n)} ${GROUP_PHRASE[group](n)}**`];
+
+  const shared = sharedEdits(members).slice(0, SHARED_PER_GROUP);
   const sharedKeys = new Set(shared.map(([k]) => k));
   for (const [, e] of shared) out.push(`- On ${e.count} of ${n} pages: ${e.text}`);
 
@@ -279,11 +283,72 @@ function renderGroup(group: Group, members: Page[]): string[] {
   return out;
 }
 
+type Decision = 'bug' | 'needs_review' | 'intentional' | 'noise';
+
+const DECISION_TAG: Record<Decision, string> = {
+  bug: 'looks like a bug',
+  needs_review: 'needs review',
+  intentional: 'intended',
+  noise: 'noise',
+};
+
+const BUGS_SHOWN = 10;
+const REVIEWS_SHOWN = 5;
+const INTENTS_SHOWN = 3;
+
+// A changed page the judge never reached is one a person has to look at.
+function decisionOf(r: PageResult): Decision {
+  return r.verdict?.decision ?? 'needs_review';
+}
+
+function why(r: PageResult): string {
+  const reasoning = r.verdict?.reasoning?.trim();
+  return reasoning ? `Why: ${plain(clip(prose(reasoning), 140))}` : r.verdict ? '' : 'Not judged on this run';
+}
+
+/** Pages that need a person, each with its own edits and the reason it was flagged. */
+function renderFlagged(heading: string, members: Page[], shared: Set<string>, shown: number): string[] {
+  const out = [`**${heading}**`];
+  for (const p of members.slice(0, shown)) {
+    out.push(`- ${p.label}`);
+    const own = p.lines.filter(l => !shared.has(l.key));
+    for (const l of (own.length ? own : p.lines).slice(0, LINES_PER_PAGE)) out.push(`  - ${l.text}`);
+    const reason = why(p.result);
+    if (reason) out.push(`  - ${reason}`);
+  }
+  if (members.length > shown) out.push(`- and ${more(members.length - shown, 'page')}`);
+  return out;
+}
+
+/** Intended pages fold into one line per piece of intent that covers them. */
+function renderIntended(members: Page[], against: string): string[] {
+  const out = [`**${pages(members.length)} ${members.length === 1 ? 'matches' : 'match'} ${against}**`];
+  const byCover = new Map<string, number>();
+  for (const p of members) {
+    const cover = p.result.verdict?.coveredBy?.trim() ?? '';
+    byCover.set(cover, (byCover.get(cover) ?? 0) + 1);
+  }
+  const quoted = [...byCover.entries()].filter(([c]) => c).sort((a, b) => b[1] - a[1]);
+  if (quoted.length === 1 && quoted[0][1] === members.length) return [`${out[0].slice(0, -2)}:** ${quote(quoted[0][0], 80)}`];
+  for (const [cover, n] of quoted.slice(0, INTENTS_SHOWN)) out.push(`- ${pages(n)}: ${quote(cover, 80)}`);
+  const rest = members.length - quoted.slice(0, INTENTS_SHOWN).reduce((sum, [, n]) => sum + n, 0);
+  if (rest && rest < members.length) out.push(`- ${rest} other${rest === 1 ? '' : 's'}`);
+  return out;
+}
+
+function renderNoise(members: Page[]): string[] {
+  const names = members.slice(0, 3).map(p => p.label);
+  if (members.length > 3) names.push(more(members.length - 3, 'page').replace(/^(\d+) more/, 'and $1 more'));
+  return [`**${pages(members.length)} ${members.length === 1 ? 'looks' : 'look'} like noise:** ${names.join(', ')}`];
+}
+
 /** The folded per-page record: every edit, the RegressionBot summary, and the diff link. */
 function renderPageDetail(p: Page): string {
   const r = p.result;
-  const head = `- ${p.label}${r.diffUrl ? ` · [diff](${r.diffUrl})` : ''}`;
+  const verdict = r.verdict ? ` · ${DECISION_TAG[decisionOf(r)]}` : '';
+  const head = `- ${p.label}${verdict}${r.diffUrl ? ` · [diff](${r.diffUrl})` : ''}`;
   const lines = (r.changes ?? []).map(c => `  - ${describeChange(c)}`);
+  if (r.verdict?.reasoning) lines.push(`  - ${why(r)}`);
   for (const item of summaryItems(r)) {
     lines.push(`  - ${item.label ? `${plain(item.label)}: ` : ''}${plain(clip(prose(item.text)))}`);
   }
@@ -314,14 +379,23 @@ export function renderComment(jobId: string, summary: JobSummary, appUrl: string
   }
   const ordered = GROUP_ORDER.filter(g => groups.has(g)).map(g => [g, groups.get(g)!] as const);
 
+  // Verdicts lead when the run carried an intent and the judge reached the pages.
+  const intent = summary.intentAssessment;
+  const judged = !!intent?.intentProvided && regressions.some(r => r.verdict);
+  const byDecision = (d: Decision) => all.filter(p => decisionOf(p.result) === d);
+  const bugs = judged ? byDecision('bug') : [];
+  const reviews = judged ? byDecision('needs_review') : [];
+
   const counts = [
     regressions.length ? `${pages(regressions.length)} changed` : '',
+    bugs.length ? `${bugs.length} ${bugs.length === 1 ? 'looks like a bug' : 'look like bugs'}` : '',
+    reviews.length ? `${reviews.length} need${reviews.length === 1 ? 's' : ''} review` : '',
     errors.length ? plural(errors.length, 'error') : '',
     newBaselines.length ? plural(newBaselines.length, 'new baseline') : '',
   ].filter(Boolean);
   const main = [COMMENT_HEADING, '', `**${counts.join(' · ')}** · [Review the run →](${reviewUrl})`];
 
-  const runSummary = summary.runSummary?.trim();
+  const runSummary = summary.runSummary?.trim() || (judged ? intent.summary?.trim() : '');
   if (runSummary) {
     main.push('', plain(runSummary));
   } else if (ordered.length) {
@@ -334,7 +408,19 @@ export function renderComment(jobId: string, summary: JobSummary, appUrl: string
     );
   }
 
-  for (const [g, members] of ordered) main.push('', ...renderGroup(g, members));
+  if (judged) {
+    const shared = new Set(sharedEdits(all).map(([k]) => k));
+    const intended = byDecision('intentional');
+    const noise = byDecision('noise');
+    const against = summary.runContext?.prTitle ? 'the PR' : 'the stated intent';
+    if (bugs.length) main.push('', ...renderFlagged(`${pages(bugs.length)} ${bugs.length === 1 ? 'looks' : 'look'} like ${bugs.length === 1 ? 'a bug' : 'bugs'}`, bugs, shared, BUGS_SHOWN));
+    if (reviews.length) main.push('', ...renderFlagged(`${pages(reviews.length)} need${reviews.length === 1 ? 's' : ''} review`, reviews, shared, REVIEWS_SHOWN));
+    if (intended.length) main.push('', ...renderIntended(intended, against));
+    if (noise.length) main.push('', ...renderNoise(noise));
+  } else {
+    for (const [g, members] of ordered) main.push('', ...renderGroup(g, members));
+    if (intent?.intentProvided) main.push('', 'Not judged against the intent on this run, because the summaries were skipped or did not finish.');
+  }
 
   if (errors.length) {
     main.push('', `**${plural(errors.length, 'page')} failed to check**`);
